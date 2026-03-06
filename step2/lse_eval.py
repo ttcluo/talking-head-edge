@@ -169,16 +169,28 @@ def load_stable_syncnet():
           f"visual={len(v_cfg['block_out_channels'])}blocks({v_cfg['block_out_channels'][-1]}ch)")
 
     syncnet = StableSyncNet(model_cfg).to(device)
-    # strict=False：跳过因空间裁剪而移除的 downsample_conv 权重（不影响前向计算）
+    # strict=False：跳过因空间裁剪而移除的 downsample_conv 权重
     missing, unexpected = syncnet.load_state_dict(state, strict=False)
     skipped = [k for k in unexpected if "downsample_conv" in k]
     if skipped:
-        print(f"  ⚠ 跳过 {len(skipped)} 个超界 downsample_conv 权重（正常，空间已压缩到 1×1）")
-    if [k for k in missing if "downsample_conv" not in k]:
-        print(f"  ⚠ 其他缺失 key: {[k for k in missing if 'downsample_conv' not in k][:5]}")
+        print(f"  ⚠ 跳过 {len(skipped)} 个超界 downsample_conv 权重（正常）")
     syncnet.eval()
+
+    # Monkey-patch forward：用 adaptive_avg_pool2d 强制对齐两个编码器的空间维度
+    # 原始 reshape 在音频最终为 (2,1) 时输出 4096≠2048 导致 cosine_similarity 崩溃
+    import types
+    def _patched_forward(self, image_sequences, audio_sequences):
+        vis = self.visual_encoder(image_sequences)
+        aud = self.audio_encoder(audio_sequences)
+        vis = F.adaptive_avg_pool2d(vis, 1).reshape(vis.shape[0], -1)
+        aud = F.adaptive_avg_pool2d(aud, 1).reshape(aud.shape[0], -1)
+        vis = F.normalize(vis, p=2, dim=1)
+        aud = F.normalize(aud, p=2, dim=1)
+        return vis, aud
+    syncnet.forward = types.MethodType(_patched_forward, syncnet)
+
     total = sum(p.numel() for p in syncnet.parameters())
-    print(f"  ✓ StableSyncNet 加载完成（{total:,} 参数）")
+    print(f"  ✓ StableSyncNet 加载完成（{total:,} 参数，adaptive pooling 已启用）")
     return syncnet, num_frames
 
 # ==================== 音频 mel 频谱 ====================
@@ -357,13 +369,14 @@ if args.mode == "generate_and_eval":
     # 方案 B：HuggingFace 格式（用 transformers 直接加载，服务器已有）
     if audio_chunks is None and os.path.exists("models/whisper/config.json"):
         try:
-            from transformers import WhisperProcessor, WhisperModel
+            from transformers import WhisperFeatureExtractor, WhisperModel
             import librosa as _librosa
 
             print("  → 使用 HuggingFace Whisper 格式加载...")
             hf_dir = "models/whisper"
-            hf_proc  = WhisperProcessor.from_pretrained(hf_dir)
-            hf_model = WhisperModel.from_pretrained(hf_dir).to(device)
+            # 只用 feature extractor，不需要 tokenizer 文件
+            hf_feat_ext = WhisperFeatureExtractor.from_pretrained(hf_dir)
+            hf_model    = WhisperModel.from_pretrained(hf_dir).to(device)
             hf_model.eval()
 
             wav, _ = _librosa.load(args.audio, sr=16000)
@@ -377,9 +390,9 @@ if args.mode == "generate_and_eval":
                 seg = wav[off: off + chunk_samp]
                 if len(seg) == 0:
                     break
-                inp = hf_proc(seg, sampling_rate=16000, return_tensors="pt",
-                              padding="max_length",
-                              max_length=chunk_samp).input_features.to(device)
+                inp = hf_feat_ext(seg, sampling_rate=16000, return_tensors="pt",
+                                  padding="max_length",
+                                  max_length=chunk_samp).input_features.to(device)
                 with torch.no_grad():
                     enc = hf_model.encoder(inp).last_hidden_state[0]  # (1500, 384)
                 feat_list.append(enc.float().cpu().numpy())
