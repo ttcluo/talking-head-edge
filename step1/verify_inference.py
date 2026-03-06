@@ -165,19 +165,22 @@ with torch.no_grad():
     batch_size = 1
     dummy_latent = torch.randn(batch_size, 32, 64, 64).to(device)  # UNet输入
     dummy_audio = torch.randn(batch_size, 1, 384).to(device)       # Whisper特征
+    timestep = torch.tensor([0.0], device=device)
 
     print(f"  输入形状: latent={dummy_latent.shape}, audio={dummy_audio.shape}")
 
     # 测量推理时间（预热 3 次，正式 10 次）
     print("  预热...")
     for _ in range(3):
-        _ = unet(dummy_latent, encoder_hidden_states=dummy_audio).sample
+        _ = unet(dummy_latent, timestep=timestep,
+                 encoder_hidden_states=dummy_audio).sample
 
     print("  正式计时（10次取平均）...")
     torch.cuda.synchronize()
     t0 = time.time()
     for _ in range(10):
-        out = unet(dummy_latent, encoder_hidden_states=dummy_audio).sample
+        out = unet(dummy_latent, timestep=timestep,
+                   encoder_hidden_states=dummy_audio).sample
     torch.cuda.synchronize()
     avg_ms = (time.time() - t0) / 10 * 1000
 
