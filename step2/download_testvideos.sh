@@ -16,14 +16,14 @@ YT="python3 -m yt_dlp"
 echo "下载目录: $OUT"
 echo ""
 
-# 3 个经典 TED 谈话片段（正面人脸、清晰说话、多年稳定可用）
-# 只取前 30 秒，分辨率限制 480p，输出 mp4
+# 3 个 TED 演讲（正面人脸、说话清晰、多年稳定可用）
+# 下载完整视频，multi_eval.py 只取前 100 帧，不需要 ffmpeg
 
 VIDEOS=(
     # (YouTube ID) (说话人描述)
     "qp0HIF3SfI4 Simon_Sinek"
     "iG9CE55wbtY Richard_StJohn"
-    "3clUtJMM3nU Brene_Brown"
+    "psNPSuFoEvE Amy_Cuddy"
 )
 
 for entry in "${VIDEOS[@]}"; do
@@ -38,10 +38,7 @@ for entry in "${VIDEOS[@]}"; do
 
     echo "  下载 $name ($vid_id)..."
     $YT \
-        --download-sections "*0:00-0:30" \
-        --force-keyframes-at-cuts \
-        -f "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/mp4" \
-        --merge-output-format mp4 \
+        -f "best[height<=480][ext=mp4]/best[height<=480]/best" \
         -o "$out_file" \
         "https://www.youtube.com/watch?v=$vid_id" \
     && echo "  ✓ $out_file" \
