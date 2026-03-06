@@ -31,9 +31,8 @@ pip install -q diffusers==0.24.0
 pip install -q einops==0.4.1 omegaconf==2.3.0
 pip install -q facenet_pytorch==2.5.0
 pip install -q moviepy==1.0.3
-# av 需要 FFmpeg 系统库才能从源码编译，改用 conda 预编译包
-conda install -y -c conda-forge av -q 2>/dev/null \
-  || pip install av --prefer-binary -q  # conda 失败时降级尝试 pip 预编译 wheel
+# av 需要 FFmpeg 系统库才能从源码编译；pip --prefer-binary 直接取预编译 wheel
+pip install av --prefer-binary -q
 
 echo "  ✓ 依赖安装完成"
 
