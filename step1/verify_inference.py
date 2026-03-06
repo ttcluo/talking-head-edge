@@ -4,13 +4,19 @@ MuseTalk 推理验证脚本
 使用方法：
     conda activate musetalk
     cd ~/MuseTalk
-    python ~/tad/step1/verify_inference.py
+    python /path/to/step1/verify_inference.py
 """
 
 import sys
 import time
 import torch
 import numpy as np
+import os
+
+# 确保可以找到 musetalk 包（默认 ~/MuseTalk）
+MUSETALK_ROOT = os.environ.get("MUSE_ROOT", os.path.expanduser("~/MuseTalk"))
+if MUSETALK_ROOT not in sys.path:
+    sys.path.insert(0, MUSETALK_ROOT)
 
 
 def check(name, fn):
