@@ -439,7 +439,7 @@ if args.mode == "generate_and_eval":
     baseline_pixels, input_latents = [], []
     with torch.no_grad():
         for i, frm in enumerate(frames):
-            face = cv2.resize(frm, (256, 256))
+            face = cv2.resize(frm[:256, :256], (256, 256))
             rgb  = face[:, :, ::-1].copy()
             t    = torch.from_numpy(rgb).permute(2, 0, 1).float() / 127.5 - 1
             t    = t.unsqueeze(0).to(device, dtype)
@@ -477,7 +477,7 @@ if args.mode == "generate_and_eval":
     with torch.no_grad():
         for i, frm in enumerate(frames):
             if i == 0 or motions[i] >= args.threshold:
-                face = cv2.resize(frm, (256, 256))
+                face = cv2.resize(frm[:256, :256], (256, 256))
                 rgb  = face[:, :, ::-1].copy()
                 t    = torch.from_numpy(rgb).permute(2, 0, 1).float() / 127.5 - 1
                 t    = t.unsqueeze(0).to(device, dtype)
