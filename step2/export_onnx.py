@@ -142,6 +142,16 @@ print(f"  合计（enc+unet+dec）: {ms_total_pt:.2f} ms → {1000/ms_total_pt:.
 # ==================== ONNX 导出 ====================
 print("\n[3/4] ONNX 导出（FP32，opset={})".format(args.opset))
 
+# PyTorch 2.0 的 scaled_dot_product_attention（Flash/MemEff）不能被 ONNX trace，
+# 导出前强制切换到 Math 后端（标准 softmax(QK^T/√d)V），导出后恢复。
+_sdp_flash = torch.backends.cuda.flash_sdp_enabled()
+_sdp_mem   = torch.backends.cuda.mem_efficient_sdp_enabled()
+_sdp_math  = torch.backends.cuda.math_sdp_enabled()
+torch.backends.cuda.enable_flash_sdp(False)
+torch.backends.cuda.enable_mem_efficient_sdp(False)
+torch.backends.cuda.enable_math_sdp(True)
+print("  ✓ SDPA 切换到 Math 后端（避免 Flash Attn ONNX 不兼容）")
+
 # 导出需要 FP32（ONNX 导出时 FP16 算子支持不稳定）
 unet_fp32  = UNetWrapper(unet.float()).eval()
 enc_fp32   = VAEEncWrapper(vae.float()).eval()
@@ -191,7 +201,10 @@ export(
     dynamic_axes={"latent": {0: "B"}, "image": {0: "B"}},
 )
 
-# 切回 FP16 用于后续推理
+# 恢复 SDPA 原始设置，切回 FP16 用于后续推理
+torch.backends.cuda.enable_flash_sdp(_sdp_flash)
+torch.backends.cuda.enable_mem_efficient_sdp(_sdp_mem)
+torch.backends.cuda.enable_math_sdp(_sdp_math)
 unet.half(); vae.half()
 
 
