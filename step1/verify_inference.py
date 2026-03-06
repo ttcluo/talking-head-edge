@@ -161,10 +161,12 @@ print("5. 单次前向推理测试（随机输入）")
 print("=" * 50)
 
 with torch.no_grad():
-    # 模拟输入
+    # 模拟输入（按照 UNet 实际期望通道数 & 空间尺寸）
     batch_size = 1
-    dummy_latent = torch.randn(batch_size, 32, 64, 64).to(device)  # UNet输入
-    dummy_audio = torch.randn(batch_size, 1, 384).to(device)       # Whisper特征
+    in_channels = unet.conv_in.in_channels
+    spatial = unet.config.sample_size
+    dummy_latent = torch.randn(batch_size, in_channels, spatial, spatial).to(device)
+    dummy_audio = torch.randn(batch_size, 1, 384).to(device)       # Whisper特征维度 384
     timestep = torch.tensor([0.0], device=device)
 
     print(f"  输入形状: latent={dummy_latent.shape}, audio={dummy_audio.shape}")
