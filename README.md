@@ -27,7 +27,7 @@
 
 ```bash
 # 1. 克隆本仓库
-git clone https://github.com/YOUR_USERNAME/talking-head-edge.git
+git clone https://github.com/ttcluo/talking-head-edge.git
 cd talking-head-edge
 
 # 2. 环境搭建
