@@ -43,14 +43,27 @@ cd ~
 if [ -d "MuseTalk" ]; then
     echo "  MuseTalk 目录已存在，跳过下载"
 else
-    # 优先尝试 GitHub zip
-    echo "  尝试从 GitHub 下载..."
-    if wget -q --timeout=60 -O musetalk.zip \
+    # 使用 curl（-L 跟随重定向），避免 wget 下载到 HTML 错误页
+    echo "  尝试从 GitHub 下载（curl -L 跟随重定向）..."
+    if curl -L --connect-timeout 30 --max-time 300 -o musetalk.zip \
         "https://github.com/TMElyralab/MuseTalk/archive/refs/heads/main.zip"; then
-        echo "  GitHub 下载成功"
+        # 校验：zip 文件应 >500KB，且 file 识别为 zip
+        SIZE=$(stat -c%s musetalk.zip 2>/dev/null) || SIZE=0
+        if [ "${SIZE:-0}" -lt 500000 ]; then
+            echo "  ❌ 下载文件过小(${SIZE} bytes)，可能是 HTML 错误页"
+            head -5 musetalk.zip
+            rm -f musetalk.zip
+            exit 1
+        fi
+        if ! file musetalk.zip | grep -q "Zip"; then
+            echo "  ❌ 非 zip 格式: $(file musetalk.zip)"
+            rm -f musetalk.zip
+            exit 1
+        fi
+        echo "  GitHub 下载成功 ($(($SIZE/1024))KB)"
     else
         echo "  GitHub 下载失败，尝试 Gitee 镜像..."
-        wget --timeout=60 -O musetalk.zip \
+        curl -L --connect-timeout 30 --max-time 300 -o musetalk.zip \
             "https://gitee.com/mirrors/MuseTalk/repository/archive/main.zip" || {
             echo "  ❌ 两个源均下载失败，请手动下载："
             echo "     https://github.com/TMElyralab/MuseTalk/archive/refs/heads/main.zip"
