@@ -102,26 +102,36 @@ def check_environment():
 # ==================== 从权重自动推断架构配置 ====================
 def infer_config_from_state(state: dict) -> tuple:
     """
-    从 checkpoint 的 weight shapes 推断 StableSyncNet 架构配置，
-    完全不依赖 yaml 文件，兼容任意训练版本。
+    从 checkpoint 的 weight shapes 推断 StableSyncNet 架构配置。
+    关键：追踪空间分辨率，防止对过小的特征图做 stride=2 下采样（会崩溃）。
     返回 (model_config_dict, num_frames_per_window)
     """
-    def infer_encoder(prefix):
+    def next_spatial(H, W):
+        """ResnetBlock2D downsample: F.pad(x,(0,1,0,1)) + Conv3x3 stride=2"""
+        return (H - 2) // 2 + 1, (W - 2) // 2 + 1
+
+    def infer_encoder(prefix, H, W):
         in_channels = state[f"{prefix}.conv_in.weight"].shape[1]
         block_out_channels, downsample_factors, attn_blocks_cfg = [], [], []
 
         i = 0
         while True:
             rk = f"{prefix}.down_blocks.{i}.conv1.weight"
-            ak = f"{prefix}.down_blocks.{i}.conv_in.weight"  # AttentionBlock 标志
+            ak = f"{prefix}.down_blocks.{i}.conv_in.weight"  # AttentionBlock
             if rk in state:
-                out_ch = state[rk].shape[0]
+                out_ch   = state[rk].shape[0]
                 has_down = f"{prefix}.down_blocks.{i}.downsample_conv.weight" in state
+                # 只有当 H > 1 且 W > 1 时才允许 stride=2，否则强制 factor=1
+                if has_down and H > 1 and W > 1:
+                    factor = 2
+                    H, W = next_spatial(H, W)
+                else:
+                    factor = 1
                 block_out_channels.append(out_ch)
-                downsample_factors.append(2 if has_down else 1)
+                downsample_factors.append(factor)
                 attn_blocks_cfg.append(0)
             elif ak in state:
-                attn_blocks_cfg[-1] = 1   # 这个 block 是 Attn，附属于上一个 ResNet
+                attn_blocks_cfg[-1] = 1
             else:
                 break
             i += 1
@@ -134,13 +144,12 @@ def infer_config_from_state(state: dict) -> tuple:
             "dropout":            0.0,
         }
 
-    audio_cfg  = infer_encoder("audio_encoder")
-    visual_cfg = infer_encoder("visual_encoder")
+    # mel 频谱输入 (80, 52)；VAE 潜变量 (4×N, 32, 32)
+    audio_cfg  = infer_encoder("audio_encoder",  H=80, W=52)
+    visual_cfg = infer_encoder("visual_encoder",  H=32, W=32)
 
-    # visual in_channels = num_frames × 4 (VAE channels)
-    num_frames = visual_cfg["in_channels"] // 4
-
-    model_cfg = {"audio_encoder": audio_cfg, "visual_encoder": visual_cfg}
+    num_frames = visual_cfg["in_channels"] // 4  # 4 = SD VAE channels
+    model_cfg  = {"audio_encoder": audio_cfg, "visual_encoder": visual_cfg}
     return model_cfg, num_frames
 
 # ==================== 加载 SyncNet ====================
@@ -160,7 +169,13 @@ def load_stable_syncnet():
           f"visual={len(v_cfg['block_out_channels'])}blocks({v_cfg['block_out_channels'][-1]}ch)")
 
     syncnet = StableSyncNet(model_cfg).to(device)
-    syncnet.load_state_dict(state)
+    # strict=False：跳过因空间裁剪而移除的 downsample_conv 权重（不影响前向计算）
+    missing, unexpected = syncnet.load_state_dict(state, strict=False)
+    skipped = [k for k in unexpected if "downsample_conv" in k]
+    if skipped:
+        print(f"  ⚠ 跳过 {len(skipped)} 个超界 downsample_conv 权重（正常，空间已压缩到 1×1）")
+    if [k for k in missing if "downsample_conv" not in k]:
+        print(f"  ⚠ 其他缺失 key: {[k for k in missing if 'downsample_conv' not in k][:5]}")
     syncnet.eval()
     total = sum(p.numel() for p in syncnet.parameters())
     print(f"  ✓ StableSyncNet 加载完成（{total:,} 参数）")
@@ -322,32 +337,30 @@ if args.mode == "generate_and_eval":
     unet.load_state_dict(torch.load("models/musetalkV15/unet.pth", map_location=device))
     vae.eval(); unet.eval()
 
-    # Whisper 音频特征（使用旧版 Audio2Feature 接口）
+    # Whisper 音频特征（正确路径：tiny.pt 格式）
     audio_chunks = None
-    try:
-        from musetalk.whisper.audio2feature import Audio2Feature
-        ap = Audio2Feature(model_path="models/whisper/pytorch_model.bin",
-                           device=device, fps=25)
-        audio_feats = ap.get_sliced_feature(
-            feature_array=ap.audio2feat(args.audio), fps=25,
-            audio_length_in_s=None, weight_dtype=dtype
-        )
-        audio_chunks = audio_feats
-        print(f"  ✓ Whisper 音频特征: {len(audio_chunks)} 块")
-    except Exception:
-        pass
-
-    if audio_chunks is None:
+    whisper_paths = [
+        "models/whisper/tiny.pt",
+        "models/whisper/pytorch_model.bin",
+        "models/whisper/whisper_tiny.pt",
+    ]
+    for wp in whisper_paths:
+        if not os.path.exists(wp):
+            continue
         try:
             from musetalk.whisper.audio2feature import Audio2Feature
-            ap = Audio2Feature(whisper_model_type="tiny",
-                               model_path="models/whisper/pytorch_model.bin")
+            ap = Audio2Feature(whisper_model_type="tiny", model_path=wp)
             af = ap.audio2feat(args.audio)
             audio_chunks = ap.feature2chunks(feature_array=af, fps=25)
-            print(f"  ✓ Whisper 特征(v2): {len(audio_chunks)} 块")
+            print(f"  ✓ Whisper 音频特征: {len(audio_chunks)} 块（{wp}）")
+            break
         except Exception as e:
-            print(f"  ⚠ Whisper 失败({e}), 用零向量——跳过率会失真，不建议评估 LSE")
-            audio_chunks = [np.zeros((1, 384), dtype=np.float32)] * args.num_frames
+            print(f"  ✗ {wp}: {e}")
+
+    if audio_chunks is None:
+        print(f"  ⚠ Whisper 全部路径失败，用零向量（跳过率会失真，LSE 绝对值不可信）")
+        print(f"  → 请确认 whisper 权重路径，可用: ls models/whisper/")
+        audio_chunks = [np.zeros((1, 384), dtype=np.float32)] * args.num_frames
 
     frames = read_frames(args.video, args.num_frames)
     N      = len(frames)
