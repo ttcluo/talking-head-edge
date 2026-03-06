@@ -19,7 +19,7 @@
 └── step1/               # 第一步行动脚本
     ├── setup.sh         # A800 服务器环境搭建
     ├── verify_inference.py  # 推理验证
-    ├── profile_musetalk.py  # 性能 Profiling
+    ├── profile_musetalk.py  # 性能 Profiling（输出至 profile_results/）
     └── papers.md        # 论文阅读清单
 ```
 
@@ -56,8 +56,8 @@ python ~/talking-head-edge/step1/profile_musetalk.py \
 
 - [x] 研究方向确定
 - [x] 第一步行动脚本编写
-- [ ] 环境搭建（A800）
-- [ ] MuseTalk 1.5 推理跑通
-- [ ] 性能 Profiling 完成
+- [x] 环境搭建（A800）
+- [x] MuseTalk 1.5 推理跑通
+- [x] 性能 Profiling 完成（FP32 18.4 FPS / FP16 21.5 FPS，UNet 瓶颈 53%）
 - [ ] EchoMimic 复现
 - [ ] 核心方法实现
