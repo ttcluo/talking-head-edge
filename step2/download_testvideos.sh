@@ -6,11 +6,12 @@ set -e
 OUT="$HOME/Downloads/tad_testvideos"
 mkdir -p "$OUT"
 
-# 确保 yt-dlp 可用
-if ! command -v yt-dlp &>/dev/null; then
+# 确保 yt-dlp 可用，统一用 python3 -m yt_dlp 调用（避免 PATH 问题）
+if ! python3 -m yt_dlp --version &>/dev/null 2>&1; then
     echo "安装 yt-dlp..."
     pip3 install -q yt-dlp
 fi
+YT="python3 -m yt_dlp"
 
 echo "下载目录: $OUT"
 echo ""
@@ -36,7 +37,7 @@ for entry in "${VIDEOS[@]}"; do
     fi
 
     echo "  下载 $name ($vid_id)..."
-    yt-dlp \
+    $YT \
         --download-sections "*0:00-0:30" \
         --force-keyframes-at-cuts \
         -f "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/mp4" \
