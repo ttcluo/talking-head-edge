@@ -148,10 +148,10 @@ with torch.no_grad():
         face_t = torch.from_numpy(face).permute(2, 0, 1).float() / 127.5 - 1
         face_t = face_t.unsqueeze(0).to(device, dtype)
 
-        # VAE encode
+        # VAE encode（用 .mean 而非 .sample，确保确定性：排除随机噪声对 motion 计算的干扰）
         if torch.cuda.is_available(): torch.cuda.synchronize()
         t0 = time.time()
-        latent = vae.encode(face_t).latent_dist.sample()
+        latent = vae.encode(face_t).latent_dist.mean
         if torch.cuda.is_available(): torch.cuda.synchronize()
         t_vae_enc.append(time.time() - t0)
 
@@ -172,8 +172,9 @@ with torch.no_grad():
         if torch.cuda.is_available(): torch.cuda.synchronize()
         t_vae_dec.append(time.time() - t0)
 
-        input_latents.append(latent.cpu())
-        output_latents.append(out_latent.cpu())
+        # float32 存储，避免 FP16 精度损失导致 motion 计算错误
+        input_latents.append(latent.detach().cpu().float())
+        output_latents.append(out_latent.detach().cpu())
         decoded_frames.append(tensor_to_uint8(decoded.cpu()))
 
         if (i + 1) % 10 == 0:
@@ -195,9 +196,17 @@ print(f"    端到端:     {ms_total:.1f}ms → {fps_baseline:.1f} FPS")
 # ==================== 运动幅度 ====================
 motions = []
 for i in range(1, N):
+    # input_latents 已是 float32，避免 FP16 catastrophic cancellation
     m = (input_latents[i] - input_latents[i-1]).norm() / \
-        (input_latents[i-1].norm() + 1e-8)
+        (input_latents[i-1].norm() + 1e-6)
     motions.append(float(m))
+
+# 诊断输出：确认 motion 分布正常
+m_arr = np.array(motions)
+print(f"\n  运动幅度统计（诊断）:")
+print(f"    最小: {m_arr.min():.4f}  最大: {m_arr.max():.4f}")
+print(f"    均值: {m_arr.mean():.4f}  中位: {np.median(m_arr):.4f}")
+print(f"    < 0.02: {(m_arr < 0.02).mean():.1%}  < 0.10: {(m_arr < 0.10).mean():.1%}  < 0.15: {(m_arr < 0.15).mean():.1%}")
 
 # ==================== 多阈值扫描（像素空间质量）====================
 print(f"\n[第二步] 多阈值扫描（计算像素空间 SSIM/PSNR）")
@@ -346,8 +355,8 @@ for r in results:
 print(f"""
   关键对比（论文 Table 用）：
     MuseTalk FP16（基线）:    {fps_baseline:.1f} FPS,  SSIM=1.0,  PSNR=∞
-    本方法（最优阈值）:        {best['fps_end2end'] if best else '—':.1f} FPS,  "
-    SSIM={best['ssim'] if best else '—':.4f},  PSNR={best['psnr'] if best else '—':.1f}dB
+    本方法（最优阈值）:        {f"{best['fps_end2end']:.1f}" if best else "—"} FPS,
+    SSIM={f"{best['ssim']:.4f}" if best else "—"},  PSNR={f"{best['psnr']:.1f}dB" if best else "—"}
 
   ⚠ 注：LSE-C（唇形同步误差）需用 SyncNet 评估，是投稿必备指标
 """)
