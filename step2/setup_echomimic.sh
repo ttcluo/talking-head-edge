@@ -33,12 +33,39 @@ pip install -q facenet_pytorch==2.5.0
 pip install -q moviepy==1.0.3
 # av 需要 FFmpeg 系统库才能从源码编译；pip --prefer-binary 直接取预编译 wheel
 pip install av --prefer-binary -q
+# diffusers==0.24.0 依赖 cached_download，该 API 在 huggingface_hub>=0.23 中被移除
+pip install -q "huggingface_hub==0.21.4"
 
 echo "  ✓ 依赖安装完成"
 
-# ==================== 检查权重 ====================
-echo "[3/4] 检查权重目录..."
+# ==================== 权重准备 ====================
+echo "[3/4] 准备权重目录..."
 mkdir -p "$PRETRAINED_DIR"
+
+# sd-vae 和 whisper 直接符号链接 MuseTalk 已有权重，节省 ~3GB 下载
+if [ ! -e "$PRETRAINED_DIR/sd-vae-ft-mse" ]; then
+    ln -s ~/MuseTalk/models/sd-vae "$PRETRAINED_DIR/sd-vae-ft-mse"
+    echo "  ✓ sd-vae-ft-mse -> ~/MuseTalk/models/sd-vae (符号链接)"
+fi
+if [ ! -e "$PRETRAINED_DIR/whisper" ]; then
+    ln -s ~/MuseTalk/models/whisper "$PRETRAINED_DIR/whisper"
+    echo "  ✓ whisper -> ~/MuseTalk/models/whisper (符号链接)"
+fi
+
+# 尝试下载剩余 5 个模型文件
+NEED_DOWNLOAD=0
+for f in denoising_unet.pth reference_unet.pth motion_module.pth audio_projection.pt face_locator.pth; do
+    [ ! -f "$PRETRAINED_DIR/$f" ] && NEED_DOWNLOAD=$((NEED_DOWNLOAD + 1))
+done
+
+if [ $NEED_DOWNLOAD -gt 0 ]; then
+    echo "  尝试从 HuggingFace 下载剩余 $NEED_DOWNLOAD 个权重..."
+    huggingface-cli download BadToBest/EchoMimic \
+        --local-dir "$PRETRAINED_DIR" \
+        --include "*.pth" "*.pt" \
+        2>&1 | tail -5 \
+    || echo "  ⚠ HuggingFace 下载失败，请手动下载（见下方说明）"
+fi
 
 # 权重清单
 declare -A WEIGHTS=(
