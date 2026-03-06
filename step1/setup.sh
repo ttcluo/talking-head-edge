@@ -35,13 +35,37 @@ pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 \
 python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.cuda.is_available()}, GPU数量: {torch.cuda.device_count()}')"
 echo "✓ PyTorch 安装完成"
 
-# ---------- 3. 克隆 MuseTalk ----------
+# ---------- 3. 下载 MuseTalk ----------
 echo ""
-echo "[步骤 3/7] 克隆 MuseTalk 仓库..."
+echo "[步骤 3/7] 下载 MuseTalk 源码（zip 方式，规避 TLS 问题）..."
 cd ~
-git clone https://github.com/TMElyralab/MuseTalk.git
-cd MuseTalk
-echo "✓ 仓库克隆完成，当前目录：$(pwd)"
+
+if [ -d "MuseTalk" ]; then
+    echo "  MuseTalk 目录已存在，跳过下载"
+else
+    # 优先尝试 GitHub zip
+    echo "  尝试从 GitHub 下载..."
+    if wget -q --timeout=60 -O musetalk.zip \
+        "https://github.com/TMElyralab/MuseTalk/archive/refs/heads/main.zip"; then
+        echo "  GitHub 下载成功"
+    else
+        echo "  GitHub 下载失败，尝试 Gitee 镜像..."
+        wget --timeout=60 -O musetalk.zip \
+            "https://gitee.com/mirrors/MuseTalk/repository/archive/main.zip" || {
+            echo "  ❌ 两个源均下载失败，请手动下载："
+            echo "     https://github.com/TMElyralab/MuseTalk/archive/refs/heads/main.zip"
+            echo "  下载后上传到服务器，解压到 ~/MuseTalk"
+            exit 1
+        }
+        echo "  Gitee 下载成功"
+    fi
+    unzip -q musetalk.zip
+    mv MuseTalk-main MuseTalk
+    rm musetalk.zip
+fi
+
+cd ~/MuseTalk
+echo "✓ MuseTalk 就绪，当前目录：$(pwd)"
 
 # ---------- 4. 安装依赖 ----------
 echo ""
