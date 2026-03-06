@@ -16,6 +16,7 @@ MuseTalk 性能 Profiling 脚本（第 2 周核心任务）
 import argparse
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
