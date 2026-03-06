@@ -397,39 +397,53 @@ if args.build_trt:
         print(f"  ✗ TensorRT 构建失败（{e}）")
 
 
-# ==================== 联合加速比估算（MATS + TRT）====================
-# P3+ 实测：基线 22.3 FPS，MATS 45.6 FPS（2.05×）
-MATS_SPEEDUP   = 2.05
+# ==================== 联合加速比估算 ====================
+# P3+ 实测：基线 22.3 FPS，MATS 45.6 FPS（2.05×），跳过率 58%
+MATS_SKIP_RATE = 0.58
 BASELINE_FPS   = 22.3
+MATS_SPEEDUP   = 2.05
 MATS_FPS       = BASELINE_FPS * MATS_SPEEDUP
 
-print("\n" + "=" * 65)
+print("\n" + "=" * 70)
 print("  P4 汇总：各后端 UNet 耗时与联合加速估算")
-print("=" * 65)
-print(f"""
-  后端              UNet(ms)   合计(ms)   全管线FPS   vs基线
-  --------------- --------- --------- ----------- -------
-  PyTorch FP16    {ms_unet_pt:>9.2f}  {ms_total_pt:>9.2f}  {1000/ms_total_pt:>11.1f}   1.00×
-  ONNX Runtime    {"N/A":>9}  {"N/A":>9}  {"N/A":>11}   N/A""" if not ort_ok else f"""
-  后端              UNet(ms)   合计(ms)   全管线FPS   vs基线
-  --------------- --------- --------- ----------- -------
-  PyTorch FP16    {ms_unet_pt:>9.2f}  {ms_total_pt:>9.2f}  {1000/ms_total_pt:>11.1f}   1.00×
-  ONNX Runtime    {ms_unet_ort:>9.2f}  {ms_total_ort:>9.2f}  {1000/ms_total_ort:>11.1f}   {ms_total_pt/ms_total_ort:.2f}×"""
-)
+print("=" * 70)
 
+rows = [f"  {'PyTorch FP16':<22} {ms_unet_pt:>8.2f}  {ms_total_pt:>8.2f}  {1000/ms_total_pt:>10.1f}   1.00×"]
+if ort_ok:
+    rows.append(f"  {'ONNX Runtime(全FP32)':<22} {ms_unet_ort:>8.2f}  {ms_total_ort:>8.2f}  {1000/ms_total_ort:>10.1f}   {ms_total_pt/ms_total_ort:.2f}×")
 if trt_ok:
-    trt_base_speedup = ms_total_pt / ms_total_trt
-    mats_trt_fps = MATS_FPS * trt_base_speedup
-    print(f"  TensorRT FP16   {ms_unet_trt:>9.2f}  {ms_total_trt:>9.2f}  {1000/ms_total_trt:>11.1f}   {trt_base_speedup:.2f}×")
-    print(f"\n  联合加速（MATS×TRT）：MATS {MATS_SPEEDUP}× × TRT {trt_base_speedup:.2f}× = {MATS_SPEEDUP*trt_base_speedup:.2f}×")
-    print(f"  估算联合 FPS：{mats_trt_fps:.1f} FPS（基线 {BASELINE_FPS} → {mats_trt_fps:.0f}）")
-elif ort_ok:
-    ort_base_speedup = ms_total_pt / ms_total_ort
-    mats_ort_fps = MATS_FPS * ort_base_speedup
-    print(f"\n  联合加速（MATS×ORT）：MATS {MATS_SPEEDUP}× × ORT {ort_base_speedup:.2f}× = {MATS_SPEEDUP*ort_base_speedup:.2f}×")
-    print(f"  估算联合 FPS：{mats_ort_fps:.1f} FPS")
+    rows.append(f"  {'TensorRT FP16':<22} {ms_unet_trt:>8.2f}  {ms_total_trt:>8.2f}  {1000/ms_total_trt:>10.1f}   {ms_total_pt/ms_total_trt:.2f}×")
 
+print(f"\n  {'后端':<22} {'UNet(ms)':>8}  {'合计(ms)':>8}  {'全管线FPS':>10}   vs基线")
+print(f"  {'-'*22} {'-'*8}  {'-'*8}  {'-'*10}   {'-'*6}")
+for r in rows:
+    print(r)
+
+# 混合部署场景：ORT/TRT UNet + PT FP16 VAE（实际部署最优策略）
+# 跳过帧仅需 PT VAE Enc（运动检测），非跳过帧需 UNet + PT VAE enc + dec
+print(f"\n  【关键指标】MATS + 混合部署（ORT/TRT UNet + PT FP16 VAE）")
+if ort_ok:
+    # 非跳过帧: ORT UNet + PT enc + PT dec
+    ms_full_hybrid_ort  = ms_unet_ort + ms_enc_pt + ms_dec_pt
+    # 跳过帧: 只需 PT enc 做运动检测，直接复用像素帧
+    ms_skip_hybrid      = ms_enc_pt
+    ms_avg_hybrid_ort   = (1 - MATS_SKIP_RATE) * ms_full_hybrid_ort + MATS_SKIP_RATE * ms_skip_hybrid
+    fps_hybrid_ort      = 1000 / ms_avg_hybrid_ort
+    print(f"  MATS + ORT UNet 混合：{ms_avg_hybrid_ort:.1f}ms/帧 → {fps_hybrid_ort:.1f} FPS  ({fps_hybrid_ort/BASELINE_FPS:.2f}× vs 基线)")
+if trt_ok:
+    ms_full_hybrid_trt  = ms_unet_trt + ms_enc_pt + ms_dec_pt
+    ms_avg_hybrid_trt   = (1 - MATS_SKIP_RATE) * ms_full_hybrid_trt + MATS_SKIP_RATE * ms_enc_pt
+    fps_hybrid_trt      = 1000 / ms_avg_hybrid_trt
+    print(f"  MATS + TRT UNet 混合：{ms_avg_hybrid_trt:.1f}ms/帧 → {fps_hybrid_trt:.1f} FPS  ({fps_hybrid_trt/BASELINE_FPS:.2f}× vs 基线)")
+
+print(f"\n  注：ORT 全 FP32 导致 VAE 变慢，混合方案（ORT/TRT UNet + PT FP16 VAE）才是真实部署场景")
 print()
+
+# 未运行的分支补默认值，供 JSON 写入使用
+if not ort_ok:
+    fps_hybrid_ort = None
+if not trt_ok:
+    fps_hybrid_trt = None
 
 # ==================== 保存 ====================
 result = {
@@ -461,6 +475,14 @@ result = {
         "baseline_fps": BASELINE_FPS,
         "mats_fps": MATS_FPS,
         "mats_speedup": MATS_SPEEDUP,
+        "mats_skip_rate": MATS_SKIP_RATE,
+    },
+    "hybrid_deployment": {
+        "description": "MATS 像素缓存 + ORT/TRT UNet + PT FP16 VAE（实际部署最优策略）",
+        "mats_ort_unet_fps": round(fps_hybrid_ort, 1) if ort_ok else None,
+        "mats_ort_unet_speedup": round(fps_hybrid_ort / BASELINE_FPS, 2) if ort_ok else None,
+        "mats_trt_unet_fps": round(fps_hybrid_trt, 1) if trt_ok else None,
+        "mats_trt_unet_speedup": round(fps_hybrid_trt / BASELINE_FPS, 2) if trt_ok else None,
     },
     "onnx_files": {
         "unet": onnx_unet, "vae_enc": onnx_enc, "vae_dec": onnx_dec,
