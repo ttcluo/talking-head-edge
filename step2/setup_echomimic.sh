@@ -59,12 +59,31 @@ for f in denoising_unet.pth reference_unet.pth motion_module.pth audio_projectio
 done
 
 if [ $NEED_DOWNLOAD -gt 0 ]; then
-    echo "  尝试从 HuggingFace 下载剩余 $NEED_DOWNLOAD 个权重..."
-    huggingface-cli download BadToBest/EchoMimic \
-        --local-dir "$PRETRAINED_DIR" \
-        --include "*.pth" "*.pt" \
-        2>&1 | tail -5 \
-    || echo "  ⚠ HuggingFace 下载失败，请手动下载（见下方说明）"
+    echo "  从 ModelScope 下载剩余 $NEED_DOWNLOAD 个权重（约 15-17GB，请耐心等待）..."
+    pip install -q modelscope
+    python - <<'PYEOF'
+import os
+from modelscope.hub.snapshot_download import snapshot_download
+
+save_dir = os.path.expanduser("~/EchoMimic/pretrained_weights")
+files_needed = [
+    "denoising_unet.pth",
+    "reference_unet.pth",
+    "motion_module.pth",
+    "audio_projection.pt",
+    "face_locator.pth",
+]
+already = [f for f in files_needed if os.path.exists(os.path.join(save_dir, f))]
+missing = [f for f in files_needed if not os.path.exists(os.path.join(save_dir, f))]
+print(f"  已存在 {len(already)} 个，下载 {len(missing)} 个: {missing}")
+
+snapshot_download(
+    model_id="BadToBest/EchoMimic",
+    cache_dir=save_dir,
+    ignore_file_pattern=["*.md", "*.txt", "sd-vae*", "whisper*"],
+)
+print("  ✓ ModelScope 下载完成")
+PYEOF
 fi
 
 # 权重清单
