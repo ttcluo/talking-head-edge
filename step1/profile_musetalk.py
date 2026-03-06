@@ -4,7 +4,7 @@ MuseTalk 性能 Profiling 脚本（第 2 周核心任务）
 使用方法：
     conda activate musetalk
     cd ~/MuseTalk
-    python ~/tad/step1/profile_musetalk.py --video data/video/sun.mp4 --audio data/audio/sun.wav
+    python /path/to/step1/profile_musetalk.py --video data/video/sun.mp4 --audio data/audio/sun.wav
 
 输出：
     - 各模块耗时分布表
@@ -23,6 +23,11 @@ import cv2
 import numpy as np
 import torch
 from torch.profiler import ProfilerActivity, profile, record_function
+
+# 确保可以找到 musetalk 包（默认 ~/MuseTalk）
+MUSETALK_ROOT = os.environ.get("MUSE_ROOT", os.path.expanduser("~/MuseTalk"))
+if MUSETALK_ROOT not in sys.path:
+    sys.path.insert(0, MUSETALK_ROOT)
 
 # ==================== 参数解析 ====================
 parser = argparse.ArgumentParser()
@@ -147,16 +152,21 @@ def record_peak_memory(stage):
 # 预热
 print("  预热 3 帧...")
 with torch.no_grad():
+    # UNet 输入尺寸自适应当前配置
+    in_channels = unet.conv_in.in_channels
+    spatial = unet.config.sample_size
+    timestep = torch.tensor([0.0], device=device, dtype=dtype)
     for i in range(min(3, len(frames))):
         frame = frames[i]
         face_crop = cv2.resize(frame[:256, :256], (256, 256))
-        face_tensor = torch.from_numpy(face_crop).permute(2,0,1).float() / 127.5 - 1
+        face_tensor = torch.from_numpy(face_crop).permute(2, 0, 1).float() / 127.5 - 1
         face_tensor = face_tensor.unsqueeze(0).to(device, dtype)
         audio_chunk = torch.from_numpy(audio_chunks[i % len(audio_chunks)]).unsqueeze(0).to(device, dtype)
         latent = vae.encode(face_tensor).latent_dist.sample()
-        mask = torch.zeros_like(latent)
+        # mask 通道数按照 MuseTalk 设计为 16，concat 后匹配 UNet 输入通道
+        mask = torch.zeros_like(latent[:, :16])  # 16 通道 mask
         unet_input = torch.cat([latent, mask], dim=1)
-        out_latent = unet(unet_input, encoder_hidden_states=audio_chunk).sample
+        out_latent = unet(unet_input, timestep=timestep, encoder_hidden_states=audio_chunk).sample
         _ = vae.decode(out_latent).sample
 
 record_peak_memory("warmup")
@@ -186,10 +196,11 @@ with torch.no_grad():
                 face_tensor = torch.from_numpy(face_resized).permute(2,0,1).float() / 127.5 - 1
                 face_tensor = face_tensor.unsqueeze(0).to(device, dtype)
                 latent = vae.encode(face_tensor).latent_dist.sample()
-                mask_tensor = torch.from_numpy(mask_np).float() / 255.
+                # 按照 MuseTalk 约定构造 16 通道 mask latent
+                mask_tensor = torch.from_numpy(mask_np).float() / 255.0
                 mask_latent = mask_tensor.unsqueeze(0).unsqueeze(0).to(device, dtype)
                 mask_latent = torch.nn.functional.interpolate(
-                    mask_latent, size=(64, 64)
+                    mask_latent, size=(spatial, spatial)
                 ).expand(-1, 16, -1, -1)
                 unet_input = torch.cat([latent, mask_latent], dim=1)
 
@@ -199,6 +210,7 @@ with torch.no_grad():
             with timers["unet_forward"]:
                 out_latent = unet(
                     unet_input,
+                    timestep=timestep,
                     encoder_hidden_states=audio_chunk
                 ).sample
 
