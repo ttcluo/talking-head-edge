@@ -87,7 +87,6 @@ print("\n[加载模型]")
 
 from diffusers import AutoencoderKL
 from musetalk.models.unet import UNet2DConditionModel
-from musetalk.whisper.audio2feature import Audio2Feature
 from musetalk.utils.face_parsing import FaceParsing
 from musetalk.utils.utils import get_file_type, get_video_fps
 
@@ -102,10 +101,18 @@ unet.load_state_dict(state_dict)
 vae.eval()
 unet.eval()
 
-audio_processor = Audio2Feature(
-    model_path="models/whisper/pytorch_model.bin",
-    device=device, fps=25
-)
+# Whisper 编码可选：若加载失败则跳过音频编码计时
+try:
+    from musetalk.whisper.audio2feature import Audio2Feature
+    audio_processor = Audio2Feature(
+        whisper_model_type="tiny",
+        model_path="models/whisper/pytorch_model.bin"
+    )
+    whisper_ok = True
+except Exception as e:
+    print(f"  ⚠ Whisper 加载失败（{e}），仅统计视觉路径性能")
+    audio_processor = None
+    whisper_ok = False
 face_parser = FaceParsing()
 print(f"  模型加载完成，耗时 {time.time()-t_load:.1f}s")
 
@@ -131,13 +138,18 @@ print(f"  读取 {len(frames)} 帧")
 
 # ==================== 音频预处理（只做一次）====================
 print(f"\n[预处理音频] {args.audio}")
-with timers["audio_encode"]:
-    audio_features = audio_processor.audio2feat(args.audio)
-    audio_chunks = audio_processor.feature2chunks(
-        feature_array=audio_features, fps=25
-    )
-print(f"  音频特征形状: {audio_features.shape}")
-print(f"  音频块数量: {len(audio_chunks)}")
+if whisper_ok:
+    with timers["audio_encode"]:
+        audio_features = audio_processor.audio2feat(args.audio)
+        audio_chunks = audio_processor.feature2chunks(
+            feature_array=audio_features, fps=25
+        )
+    print(f"  音频特征形状: {audio_features.shape}")
+    print(f"  音频块数量: {len(audio_chunks)}")
+else:
+    # 构造占位 audio_chunks，维度与 Whisper 特征一致
+    audio_chunks = [np.zeros((1, 384), dtype=np.float32)] * max(1, len(frames))
+    print("  音频编码跳过，使用零向量占位")
 
 # ==================== 逐帧 Profiling ====================
 print(f"\n[开始逐帧 Profiling，共 {len(frames)} 帧]")
