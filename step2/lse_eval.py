@@ -337,14 +337,11 @@ if args.mode == "generate_and_eval":
     unet.load_state_dict(torch.load("models/musetalkV15/unet.pth", map_location=device))
     vae.eval(); unet.eval()
 
-    # Whisper 音频特征（正确路径：tiny.pt 格式）
+    # Whisper 音频特征加载（支持 OpenAI .pt 和 HuggingFace 两种格式）
     audio_chunks = None
-    whisper_paths = [
-        "models/whisper/tiny.pt",
-        "models/whisper/pytorch_model.bin",
-        "models/whisper/whisper_tiny.pt",
-    ]
-    for wp in whisper_paths:
+
+    # 方案 A：OpenAI .pt 格式（MuseTalk 原生）
+    for wp in ["models/whisper/tiny.pt", "models/whisper/whisper_tiny.pt"]:
         if not os.path.exists(wp):
             continue
         try:
@@ -352,14 +349,70 @@ if args.mode == "generate_and_eval":
             ap = Audio2Feature(whisper_model_type="tiny", model_path=wp)
             af = ap.audio2feat(args.audio)
             audio_chunks = ap.feature2chunks(feature_array=af, fps=25)
-            print(f"  ✓ Whisper 音频特征: {len(audio_chunks)} 块（{wp}）")
+            print(f"  ✓ Whisper (OpenAI .pt): {len(audio_chunks)} 块")
             break
         except Exception as e:
-            print(f"  ✗ {wp}: {e}")
+            print(f"  ✗ OpenAI .pt 失败: {e}")
 
+    # 方案 B：HuggingFace 格式（用 transformers 直接加载，服务器已有）
+    if audio_chunks is None and os.path.exists("models/whisper/config.json"):
+        try:
+            from transformers import WhisperProcessor, WhisperModel
+            import librosa as _librosa
+
+            print("  → 使用 HuggingFace Whisper 格式加载...")
+            hf_dir = "models/whisper"
+            hf_proc  = WhisperProcessor.from_pretrained(hf_dir)
+            hf_model = WhisperModel.from_pretrained(hf_dir).to(device)
+            hf_model.eval()
+
+            wav, _ = _librosa.load(args.audio, sr=16000)
+
+            # HF Whisper encoder 每 30s 输出 1500 个时间步（50步/s）
+            # MuseTalk 25fps → 每帧 = 2 时间步，窗口宽 = 16步（约 320ms）
+            chunk_sec    = 30
+            chunk_samp   = chunk_sec * 16000
+            feat_list    = []
+            for off in range(0, max(len(wav), chunk_samp), chunk_samp):
+                seg = wav[off: off + chunk_samp]
+                if len(seg) == 0:
+                    break
+                inp = hf_proc(seg, sampling_rate=16000, return_tensors="pt",
+                              padding="max_length",
+                              max_length=chunk_samp).input_features.to(device)
+                with torch.no_grad():
+                    enc = hf_model.encoder(inp).last_hidden_state[0]  # (1500, 384)
+                feat_list.append(enc.float().cpu().numpy())
+
+            all_feats = np.concatenate(feat_list, axis=0)  # (T, 384)
+
+            # 按帧切 chunk：每帧 2步，窗口 ±8步，保证和 MuseTalk feature2chunks 对齐
+            win  = 8   # 单侧半窗
+            step = 2   # 每帧推进 2 步
+            chunks = []
+            for fi in range(args.num_frames):
+                center = fi * step
+                s = max(0, center - win)
+                e = s + 16
+                if e > all_feats.shape[0]:
+                    e = all_feats.shape[0]
+                    s = max(0, e - 16)
+                chunk = all_feats[s:e]  # (16, 384)
+                if chunk.shape[0] < 16:
+                    chunk = np.pad(chunk, ((0, 16 - chunk.shape[0]), (0, 0)), mode="edge")
+                chunks.append(chunk.mean(axis=0, keepdims=True))  # (1, 384)
+
+            audio_chunks = chunks
+            print(f"  ✓ Whisper (HuggingFace): {len(audio_chunks)} 块")
+        except Exception as e:
+            print(f"  ✗ HuggingFace Whisper 失败: {e}")
+
+    # 方案 C：退路 —— 零向量（跳过率失真，LSE 不可信）
     if audio_chunks is None:
-        print(f"  ⚠ Whisper 全部路径失败，用零向量（跳过率会失真，LSE 绝对值不可信）")
-        print(f"  → 请确认 whisper 权重路径，可用: ls models/whisper/")
+        print("  ⚠ Whisper 全部方案失败，使用零向量")
+        print("  → 快速修复: wget -O models/whisper/tiny.pt "
+              "https://openaipublic.azureedge.net/main/whisper/models/"
+              "65147644a518d12f04e32d6f3b26facc3f8dd46e5390956a9424a650c0ce22b9/tiny.pt")
         audio_chunks = [np.zeros((1, 384), dtype=np.float32)] * args.num_frames
 
     frames = read_frames(args.video, args.num_frames)
