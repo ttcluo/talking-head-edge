@@ -9,7 +9,7 @@ mkdir -p "$OUT"
 # 确保 yt-dlp 可用
 if ! command -v yt-dlp &>/dev/null; then
     echo "安装 yt-dlp..."
-    pip install -q yt-dlp
+    pip3 install -q yt-dlp
 fi
 
 echo "下载目录: $OUT"
