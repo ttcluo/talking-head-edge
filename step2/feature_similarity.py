@@ -292,7 +292,7 @@ output = {
         "avg_lip_sim": float(avg_lip_sim),
         "avg_gap": float(avg_gap),
         "cacheable_layers": cacheable_layers,
-        "hypothesis_c_supported": avg_gap > 0.01,
+        "hypothesis_c_supported": bool(avg_gap > 0.01),
     }
 }
 
