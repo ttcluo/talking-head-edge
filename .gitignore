@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 实验输出（不上传大文件）
+profile_results/
+results/
+outputs/
+*.mp4
+*.avi
+*.mov
+
+# 模型权重（体积大，走其他渠道同步）
+models/
+*.pth
+*.bin
+*.ckpt
+*.safetensors
+
+# 数据集
+dataset/
+data/video/
+data/audio/
+
+# 系统文件
+.DS_Store
+.DS_Store?
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 日志
+*.log
+logs/
+wandb/
+runs/
