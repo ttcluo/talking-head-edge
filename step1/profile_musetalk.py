@@ -176,8 +176,8 @@ with torch.no_grad():
         face_tensor = face_tensor.unsqueeze(0).to(device, dtype)
         audio_chunk = torch.from_numpy(audio_chunks[i % len(audio_chunks)]).unsqueeze(0).to(device, dtype)
         latent = vae.encode(face_tensor).latent_dist.sample()
-        # mask 通道数按照 MuseTalk 设计为 16，concat 后匹配 UNet 输入通道
-        mask = torch.zeros_like(latent[:, :16])  # 16 通道 mask
+        # mask 空间尺寸与通道数必须与 latent 一致
+        mask = torch.zeros_like(latent)
         unet_input = torch.cat([latent, mask], dim=1)
         out_latent = unet(unet_input, timestep=timestep, encoder_hidden_states=audio_chunk).sample
         _ = vae.decode(out_latent).sample
@@ -209,12 +209,13 @@ with torch.no_grad():
                 face_tensor = torch.from_numpy(face_resized).permute(2,0,1).float() / 127.5 - 1
                 face_tensor = face_tensor.unsqueeze(0).to(device, dtype)
                 latent = vae.encode(face_tensor).latent_dist.sample()
-                # 按照 MuseTalk 约定构造 16 通道 mask latent
+                # mask 空间尺寸必须与 latent 一致（VAE 输出 32x32，非 unet.config.sample_size）
+                latent_h, latent_w = latent.shape[2], latent.shape[3]
                 mask_tensor = torch.from_numpy(mask_np).float() / 255.0
                 mask_latent = mask_tensor.unsqueeze(0).unsqueeze(0).to(device, dtype)
                 mask_latent = torch.nn.functional.interpolate(
-                    mask_latent, size=(spatial, spatial)
-                ).expand(-1, 16, -1, -1)
+                    mask_latent, size=(latent_h, latent_w)
+                ).expand(-1, latent.shape[1], -1, -1)
                 unet_input = torch.cat([latent, mask_latent], dim=1)
 
             record_peak_memory(f"after_vae_encode_{i}")
