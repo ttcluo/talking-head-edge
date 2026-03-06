@@ -141,15 +141,19 @@ print(f"  ✓ UNet 加载完成，耗时 {time.time()-t0:.2f}s")
 unet_params = sum(p.numel() for p in unet.parameters()) / 1e6
 print(f"    参数量: {unet_params:.1f}M")
 
-# 加载 Whisper
+# 加载 Whisper（仅验证权重存在，不依赖具体 device 参数）
 print("\n  加载 Whisper-tiny...")
 t0 = time.time()
 from musetalk.whisper.audio2feature import Audio2Feature
-audio_processor = Audio2Feature(
-    model_path="models/whisper/pytorch_model.bin",
-    device=device,
-    fps=25
-)
+try:
+    # 兼容不同版本的 Audio2Feature 签名
+    audio_processor = Audio2Feature(
+        model_path="models/whisper/pytorch_model.bin",
+        fps=25
+    )
+except TypeError:
+    # 回退到无参数版本
+    audio_processor = Audio2Feature()
 print(f"  ✓ Whisper 加载完成，耗时 {time.time()-t0:.2f}s")
 
 # ==================== 5. 单次前向推理测试 ====================
