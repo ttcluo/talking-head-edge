@@ -142,18 +142,30 @@ unet_params = sum(p.numel() for p in unet.parameters()) / 1e6
 print(f"    参数量: {unet_params:.1f}M")
 
 # 加载 Whisper（可选，失败不影响 UNet 计时）
+# 优先 OpenAI .pt 格式；服务器若只有 HuggingFace 格式则用 transformers 回退
 print("\n  加载 Whisper-tiny...")
 t0 = time.time()
-try:
-    from musetalk.whisper.audio2feature import Audio2Feature
-    # MuseTalk 签名：whisper_model_type, model_path（需 .pt 或兼容格式）
-    audio_processor = Audio2Feature(
-        whisper_model_type="tiny",
-        model_path="models/whisper/pytorch_model.bin"
-    )
-    print(f"  ✓ Whisper 加载完成，耗时 {time.time()-t0:.2f}s")
-except Exception as e:
-    print(f"  ⚠ Whisper 跳过（{e}），继续 UNet 计时")
+_whisper_loaded = False
+for _pt_path in ["models/whisper/tiny.pt", "models/whisper/pytorch_model.bin"]:
+    try:
+        from musetalk.whisper.audio2feature import Audio2Feature
+        Audio2Feature(whisper_model_type="tiny", model_path=_pt_path)
+        print(f"  ✓ Whisper 加载完成（{_pt_path}），耗时 {time.time()-t0:.2f}s")
+        _whisper_loaded = True
+        break
+    except Exception:
+        pass
+if not _whisper_loaded and os.path.exists("models/whisper/config.json"):
+    try:
+        from transformers import WhisperFeatureExtractor, WhisperModel
+        WhisperFeatureExtractor.from_pretrained("models/whisper")
+        WhisperModel.from_pretrained("models/whisper")
+        print(f"  ✓ Whisper 加载完成（HuggingFace 格式），耗时 {time.time()-t0:.2f}s")
+        _whisper_loaded = True
+    except Exception as e:
+        print(f"  ⚠ Whisper 跳过（{e}），继续 UNet 计时")
+if not _whisper_loaded:
+    print("  ⚠ Whisper 全部方案失败，继续 UNet 计时")
 
 # ==================== 5. 单次前向推理测试 ====================
 print("\n" + "=" * 50)

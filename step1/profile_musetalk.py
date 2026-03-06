@@ -101,18 +101,54 @@ unet.load_state_dict(state_dict)
 vae.eval()
 unet.eval()
 
-# Whisper 编码可选：若加载失败则跳过音频编码计时
-try:
-    from musetalk.whisper.audio2feature import Audio2Feature
-    audio_processor = Audio2Feature(
-        whisper_model_type="tiny",
-        model_path="models/whisper/pytorch_model.bin"
-    )
-    whisper_ok = True
-except Exception as e:
-    print(f"  ⚠ Whisper 加载失败（{e}），仅统计视觉路径性能")
-    audio_processor = None
-    whisper_ok = False
+# Whisper 编码可选：优先 OpenAI .pt，回退到 HuggingFace 格式
+audio_processor = None
+whisper_ok = False
+for _pt in ["models/whisper/tiny.pt", "models/whisper/pytorch_model.bin"]:
+    try:
+        from musetalk.whisper.audio2feature import Audio2Feature
+        audio_processor = Audio2Feature(whisper_model_type="tiny", model_path=_pt)
+        whisper_ok = True
+        break
+    except Exception:
+        pass
+if not whisper_ok and os.path.exists("models/whisper/config.json"):
+    try:
+        from transformers import WhisperFeatureExtractor, WhisperModel
+        _hf_feat = WhisperFeatureExtractor.from_pretrained("models/whisper")
+        _hf_model = WhisperModel.from_pretrained("models/whisper").to(device).eval()
+        # 包装成与 audio_processor.audio2feat / feature2chunks 兼容的接口
+        import librosa as _librosa
+        import types
+        _ap = types.SimpleNamespace()
+        def _audio2feat(path, _feat=_hf_feat, _mdl=_hf_model):
+            wav, _ = _librosa.load(path, sr=16000)
+            chunk = 30 * 16000
+            feats = []
+            for off in range(0, max(len(wav), chunk), chunk):
+                seg = wav[off:off + chunk]
+                if len(seg) == 0:
+                    break
+                inp = _feat(seg, sampling_rate=16000, return_tensors="pt",
+                            padding="max_length", max_length=chunk).input_features.to(device)
+                with torch.no_grad():
+                    enc = _mdl.encoder(inp).last_hidden_state[0]  # (1500, 384)
+                feats.append(enc.float().cpu().numpy())
+            return np.concatenate(feats, axis=0)  # (T, 384)
+        def _feature2chunks(feature_array, fps, _feat=_hf_feat):
+            # HF Whisper 50步/s，每帧 = 2步，窗口 16步
+            step, win = max(1, round(50 / fps)), 16
+            chunks = []
+            for i in range(0, len(feature_array), step):
+                seg = feature_array[i:i + win]
+                chunks.append(np.mean(seg, axis=0, keepdims=True))  # (1, 384)
+            return chunks
+        _ap.audio2feat      = _audio2feat
+        _ap.feature2chunks  = _feature2chunks
+        audio_processor = _ap
+        whisper_ok = True
+    except Exception as e:
+        print(f"  ⚠ Whisper 加载失败（{e}），仅统计视觉路径性能")
 face_parser = FaceParsing()
 print(f"  模型加载完成，耗时 {time.time()-t_load:.1f}s")
 
