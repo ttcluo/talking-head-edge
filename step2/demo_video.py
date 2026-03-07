@@ -91,12 +91,22 @@ print(f"  ✓ 预处理帧数: {cycle_len}")
 
 # ==================== 加载模型 ====================
 print("\n[加载模型]")
+from transformers import WhisperModel
 from musetalk.utils.utils import load_all_model
 from musetalk.utils.audio_processor import AudioProcessor
 from musetalk.utils.blending import get_image_blending
 
-audio_processor, vae, unet, pe, timesteps = load_all_model()
+vae, unet, pe = load_all_model(
+    unet_model_path="models/musetalkV15/unet.pth",
+    unet_config="models/musetalkV15/musetalk.json",
+)
 weight_dtype = unet.model.dtype
+timesteps = torch.tensor([0], device=device)
+
+audio_processor = AudioProcessor(feature_extractor_path="models/whisper")
+whisper = WhisperModel.from_pretrained("models/whisper")
+whisper = whisper.to(device=device, dtype=weight_dtype).eval()
+whisper.requires_grad_(False)
 print("  ✓ 所有模型加载完成")
 
 # ==================== 提取音频特征 ====================
@@ -104,7 +114,7 @@ print(f"\n[提取音频特征] {args.audio}")
 whisper_input_features, librosa_length = audio_processor.get_audio_feature(
     args.audio, weight_dtype=weight_dtype)
 whisper_chunks = audio_processor.get_whisper_chunk(
-    whisper_input_features, device, weight_dtype, unet.model, librosa_length,
+    whisper_input_features, device, weight_dtype, whisper, librosa_length,
     fps=args.fps,
     audio_padding_length_left=2,
     audio_padding_length_right=2,
