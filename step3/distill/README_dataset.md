@@ -11,22 +11,26 @@
 
 ## 一、下载 HDTF（或自备说话人视频）
 
-### 1.1 HDTF 数据集
+### 1.1 HDTF 数据集（可访问 Hugging Face 时）
 
 - **简介**：High-Definition Talking Face，说话人视频，MuseTalk 官方训练使用。
 - **获取方式**：
   - Hugging Face：<https://huggingface.co/datasets/global-optima-research/HDTF>（按页说明下载）。
   - 或从论文/官方仓库获取链接：<https://github.com/MRzzm/HDTF>。
-- **放置**：将下载得到的 **MP4 视频** 放到统一目录，例如：
-  ```text
-  $MUSE_ROOT/dataset/HDTF/source/
-  ├── xxx_000.mp4
-  ├── xxx_001.mp4
-  └── ...
-  ```
-  若使用 MuseTalk 自带预处理，需保证 `configs/training/preprocess.yaml` 里 `video_root_raw` 指向该目录。
+- **放置**：将下载得到的 **MP4 视频** 放到统一目录，例如 `$MUSE_ROOT/dataset/HDTF/source/`。若使用 MuseTalk 自带预处理，需保证 `configs/training/preprocess.yaml` 里 `video_root_raw` 指向该目录。
 
-### 1.2 自备视频
+### 1.2 无法访问 Hugging Face 时的替代来源
+
+服务器无法直连 Hugging Face 时，可用以下方式之一准备视频：
+
+| 方式 | 说明 |
+|------|------|
+| **本机/代理下载后上传** | 在能访问 Hugging Face 的机器（本机或代理）用 `huggingface-cli download` 或网页下载 HDTF，再通过 scp/rsync 传到服务器。 |
+| **VoxCeleb2** | 说话人视频数据集，国内有研究者将分卷上传至**百度网盘**（可搜「VoxCeleb2 国内下载」）。下载后按说明合并解压，得到大量 MP4，取其中若干作为 `--video_dir` 即可。需自行遵守数据集使用条款。 |
+| **OpenDataLab / ModelScope** | [OpenDataLab](https://openxlab.org.cn)、[ModelScope 魔搭](https://www.modelscope.cn) 上可搜索「talking head」「人脸视频」「说话人」等，部分数据集提供国内可下的链接。下载后整理成同一目录的 MP4 供 `prepare_distill_data.py` 使用。 |
+| **自备视频** | 见下 1.3，任意单人正面说话、带音轨的 MP4 即可，无需固定数据集。 |
+
+### 1.3 自备视频
 
 若无 HDTF，可用任意**单人正面说话视频**（带人脸、带音轨），分辨率与时长不限，建议 ≥25fps。将视频放到同一目录，例如 `$MUSE_ROOT/data/videos/`，后续用「二」中的脚本按「每个视频 → 一个 avatar」生成。
 
