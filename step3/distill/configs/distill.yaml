@@ -38,7 +38,7 @@ solver:
   gradient_accumulation_steps: 2
   mixed_precision: 'fp16'
   gradient_checkpointing: True
-  max_train_steps: 50000
+  max_train_steps: 10000
   max_grad_norm: 1.0
   learning_rate: 5.0e-5
   lr_warmup_steps: 500
