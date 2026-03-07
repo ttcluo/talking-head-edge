@@ -321,10 +321,10 @@ def get_lat(i):
         device=device, dtype=weight_dtype)
 
 
-def decode_and_compose(pred, idx):
+def decode_face(pred):
+    """仅 VAE decode，不含 compose（与基线/MATS 计时口径一致）。"""
     pred = pred.to(dtype=vae.vae.dtype)
-    faces = vae.decode_latents(pred)
-    return compose_frame(idx, faces[0])
+    return vae.decode_latents(pred)[0]
 
 
 # ==================== 1. 基线推理（批量）====================
@@ -425,9 +425,10 @@ for interval in args.dc_intervals:
             sync(); t0 = time.time()
             pred, is_refresh = dc_engine.forward_fixed(
                 lat, timesteps, audio_feat, interval)
-            composed = decode_and_compose(pred, i)
+            face = decode_face(pred)
             sync(); elapsed = time.time() - t0
 
+            composed = compose_frame(i, face)   # compose 不计入 timing（与基线/MATS 口径一致）
             dc_out.append(composed)
             dc_t.append(elapsed)
             dc_refresh_flags.append(is_refresh)
@@ -465,30 +466,31 @@ dcadp_out, dcadp_t, dcadp_refresh_flags = [], [], []
 prev_lat_adp = None
 refresh_count_adp = 0
 
-with torch.no_grad():
-    for i in range(total_frames):
-        lat = get_lat(i)
-        motion = float((lat.float() - prev_lat_adp.float()).norm() /
-                       (prev_lat_adp.float().norm() + 1e-6)) \
-                 if prev_lat_adp is not None else 999.0
-        audio_feat = get_audio_feat(i)
+    with torch.no_grad():
+        for i in range(total_frames):
+            lat = get_lat(i)
+            motion = float((lat.float() - prev_lat_adp.float()).norm() /
+                           (prev_lat_adp.float().norm() + 1e-6)) \
+                     if prev_lat_adp is not None else 999.0
+            audio_feat = get_audio_feat(i)
 
-        sync(); t0 = time.time()
-        pred, is_refresh = dc_engine.forward_adaptive(
-            lat, timesteps, audio_feat, motion, args.threshold)
-        composed = decode_and_compose(pred, i)
-        sync(); elapsed = time.time() - t0
+            sync(); t0 = time.time()
+            pred, is_refresh = dc_engine.forward_adaptive(
+                lat, timesteps, audio_feat, motion, args.threshold)
+            face = decode_face(pred)
+            sync(); elapsed = time.time() - t0
 
-        dcadp_out.append(composed)
-        dcadp_t.append(elapsed)
-        dcadp_refresh_flags.append(is_refresh)
-        if is_refresh:
-            refresh_count_adp += 1
-        prev_lat_adp = lat.clone()
+            composed = compose_frame(i, face)   # compose 不计入 timing
+            dcadp_out.append(composed)
+            dcadp_t.append(elapsed)
+            dcadp_refresh_flags.append(is_refresh)
+            if is_refresh:
+                refresh_count_adp += 1
+            prev_lat_adp = lat.clone()
 
-        if (i + 1) % 50 == 0 or (i + 1) == total_frames:
-            print(f"  [{i+1}/{total_frames}] {1/np.mean(dcadp_t[-20:]):.1f} FPS  "
-                  f"refresh率={refresh_count_adp/(i+1):.1%}")
+            if (i + 1) % 50 == 0 or (i + 1) == total_frames:
+                print(f"  [{i+1}/{total_frames}] {1/np.mean(dcadp_t[-20:]):.1f} FPS  "
+                      f"refresh率={refresh_count_adp/(i+1):.1%}")
 
 fps_dcadp  = total_frames / sum(dcadp_t)
 refresh_adp = refresh_count_adp / total_frames
