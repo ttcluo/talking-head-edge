@@ -189,8 +189,8 @@ class VideoPreviewActivity : AppCompatActivity() {
                 withContext(Dispatchers.Main) { setStatus("正在编码 MP4...") }
                 encodeBitmapsToMp4(generatedFrames, LOOP_FPS, outFile)
                 withContext(Dispatchers.Main) {
-                    setStatus("已保存: ${outFile.name}")
-                    Toast.makeText(this@VideoPreviewActivity, "已保存至 ${outFile.absolutePath}", Toast.LENGTH_LONG).show()
+                    setStatus("已保存: ${outFile.name}（仅画面，无音轨）")
+                    Toast.makeText(this@VideoPreviewActivity, "已保存至 ${outFile.absolutePath}\n（仅画面，无音轨）", Toast.LENGTH_LONG).show()
                 }
                 Log.i(TAG, "MP4 已保存: ${outFile.absolutePath}")
             } catch (e: Exception) {

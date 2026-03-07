@@ -45,16 +45,17 @@ class VaeHelper(
         inputTensor.close()
         output.close()
 
-        // [1,3,256,256] CHW -> Bitmap 256x256 RGB
-        val bitmap = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888)
-        for (y in 0 until 256) {
-            for (x in 0 until 256) {
-                val r = ((rgb[0 * 256 * 256 + y * 256 + x].coerceIn(-1f, 1f) + 1f) * 0.5f * 255).toInt().coerceIn(0, 255)
-                val g = ((rgb[1 * 256 * 256 + y * 256 + x].coerceIn(-1f, 1f) + 1f) * 0.5f * 255).toInt().coerceIn(0, 255)
-                val b = ((rgb[2 * 256 * 256 + y * 256 + x].coerceIn(-1f, 1f) + 1f) * 0.5f * 255).toInt().coerceIn(0, 255)
-                bitmap.setPixel(x, y, (0xFF shl 24) or (r shl 16) or (g shl 8) or b)
-            }
+        // [1,3,256,256] CHW -> Bitmap 256x256 ARGB（用 setPixels 批量写入，避免 6 万次 setPixel）
+        val pixels = IntArray(256 * 256)
+        val stride = 256 * 256
+        for (i in 0 until 256 * 256) {
+            val r = ((rgb[0 * stride + i].coerceIn(-1f, 1f) + 1f) * 0.5f * 255).toInt().coerceIn(0, 255)
+            val g = ((rgb[1 * stride + i].coerceIn(-1f, 1f) + 1f) * 0.5f * 255).toInt().coerceIn(0, 255)
+            val b = ((rgb[2 * stride + i].coerceIn(-1f, 1f) + 1f) * 0.5f * 255).toInt().coerceIn(0, 255)
+            pixels[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
         }
+        val bitmap = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888)
+        bitmap.setPixels(pixels, 0, 256, 0, 0, 256, 256)
         return bitmap
     }
 

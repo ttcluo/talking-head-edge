@@ -76,7 +76,7 @@ PYTHONPATH=$MUSE_ROOT python $REPO/step3/android/export_vae_decoder_onnx.py \
 # 将 models/student_onnx/vae_decoder.onnx 复制到 app/src/main/assets/
 ```
 
-App 内点击「**视频预览**」→ 进入预览页 → 点击「生成预览」：逐帧跑 UNet + VAE，界面实时显示生成的人脸（256×256）。
+App 内点击「**视频预览**」→ 进入预览页 → 点击「生成预览」：逐帧跑 UNet + VAE，界面实时显示生成的人脸（256×256）。保存的 MP4 **仅含画面，无音轨**（端上未合成音频；若需带声需在服务端导出对应音频再合成）。
 
 ---
 
