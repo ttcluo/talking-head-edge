@@ -100,18 +100,23 @@ try:
     from onnxruntime.quantization import quantize_dynamic, QuantType
 
     unet_int8_path = os.path.join(args.out_dir, "unet_int8.onnx")
-    # use_external_data_format=True：onnxruntime 自行读取外部权重文件，量化后也以外部格式输出
+    # op_types_to_quantize 必须显式列出 Conv+MatMul，否则默认只量化 MatMul（体积不变）
     quantize_dynamic(
         unet_fp32_path,
         unet_int8_path,
         weight_type=QuantType.QInt8,
+        op_types_to_quantize=["Conv", "MatMul", "Gemm"],
         use_external_data_format=True,
         extra_options={"EnableSubgraph": True},
     )
-    # INT8 输出也是外部格式，统计主文件 + 数据文件合计大小
-    data_path_int8 = unet_int8_path + ".data"
-    size_int8 = (os.path.getsize(unet_int8_path) +
-                 (os.path.getsize(data_path_int8) if os.path.exists(data_path_int8) else 0)) / 1e6
+    # 统计所有同名前缀文件（外部格式可能生成多个数据文件）
+    out_dir = os.path.dirname(unet_int8_path)
+    base = os.path.basename(unet_int8_path)
+    size_int8 = sum(
+        os.path.getsize(os.path.join(out_dir, f))
+        for f in os.listdir(out_dir)
+        if f == base or f.startswith(base)
+    ) / 1e6
     print(f"  ✓ UNet INT8: {size_int8:.1f} MB（压缩率 {size_mb/size_int8:.1f}×）")
 except ImportError:
     print("  ✗ onnxruntime 未安装，跳过 INT8 量化")
