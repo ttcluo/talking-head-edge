@@ -168,8 +168,7 @@ def main(args):
     train_dl, val_dl = build_distill_dataloaders(
         avatar_list_file=avatar_list,
         avatar_base=cfg.get("avatar_base", "results/v15/avatars"),
-        audio_dir=cfg.get("audio_dir", "data/audio"),
-        whisper_model_path=cfg.get("whisper_model_path", "models/whisper/tiny.pt"),
+        audio_feat_dir=cfg.get("audio_feat_dir", "dataset/distill/audio_feats"),
         batch_size=cfg.data.train_bs,
         num_workers=cfg.data.num_workers,
         samples_per_avatar=cfg.get("samples_per_avatar", 500),

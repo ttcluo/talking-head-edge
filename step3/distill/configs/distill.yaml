@@ -12,9 +12,9 @@ teacher_unet_config: "models/musetalkV15/musetalk.json"
 whisper_model_path:  "models/whisper/tiny.pt"
 
 # ========== 数据路径 ==========
-avatar_base:  "results/v15/avatars"
-audio_dir:    "data/audio"
-samples_per_avatar: 500    # 每个 avatar 最多采样帧数
+avatar_base:    "results/v15/avatars"
+audio_feat_dir: "dataset/distill/audio_feats"   # 由 precompute_audio_feats.py 生成
+samples_per_avatar: 500
 
 data:
   train_bs:   16
