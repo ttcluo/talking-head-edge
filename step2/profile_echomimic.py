@@ -395,7 +395,7 @@ print(f"""
   {'-'*25} {'-'*8} {'-'*8} {'-'*10} {'-'*20}
   {'MuseTalk 1.5 FP32':<25} {'1':>8} {'18.4':>8} {'54.3':>9}ms  A800 实测
   {'MuseTalk 1.5 FP16':<25} {'1':>8} {'21.5':>8} {'46.4':>9}ms  A800 实测
-  {'EchoMimic V1 FP32':<25} {str(args.num_steps):>8} {fps:>8.1f} {total_ms/args.num_frames:>9.1f}ms  A800 实测 ({args.width}×{args.height})
+  {f"EchoMimic V1 {'FP16' if args.use_fp16 else 'FP32'}":<25} {str(args.num_steps):>8} {fps:>8.1f} {total_ms/args.num_frames:>9.1f}ms  A800 实测 ({args.width}×{args.height})
 """)
 
 # ==================== 优化建议 ====================
