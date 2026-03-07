@@ -41,6 +41,9 @@ class AvatarDistillDataset(Dataset):
     ):
         self.samples = []  # [(latent_tensor, audio_tensor), ...]
 
+        if not os.path.isabs(whisper_model_path):
+            muse_root = os.environ.get("MUSE_ROOT", os.getcwd())
+            whisper_model_path = os.path.join(muse_root, whisper_model_path)
         audio2feat = Audio2Feature(model_path=whisper_model_path)
 
         for avatar_id in avatar_ids:
