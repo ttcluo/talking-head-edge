@@ -49,6 +49,7 @@ unet.model = unet.model.float().cpu()
 # 切换为 eager attention（标准 matmul），避免 Flash SDP 算子无法导出到 ONNX
 from diffusers.models.attention_processor import AttnProcessor
 unet.model.set_attn_processor(AttnProcessor())
+vae.vae.set_attn_processor(AttnProcessor())
 print("  ✓ 模型加载完成（CPU FP32，eager attention）")
 
 # ==================== 1. 导出 UNet FP32 ONNX ====================
@@ -59,9 +60,19 @@ dummy_latent = torch.zeros(1, 8, 32, 32, dtype=torch.float32)
 dummy_t      = torch.tensor([0], dtype=torch.long)
 dummy_audio  = torch.zeros(1, 50, 384, dtype=torch.float32)
 
+class _UNetWrapper(torch.nn.Module):
+    """确保 forward 返回 tensor（而非 dataclass），并固定 encoder_hidden_states 参数名。"""
+    def __init__(self, m):
+        super().__init__()
+        self.m = m
+    def forward(self, latent, timestep, audio_feat):
+        return self.m(latent, timestep, encoder_hidden_states=audio_feat, return_dict=False)[0]
+
+unet_exportable = _UNetWrapper(unet.model)
+
 with torch.no_grad():
     torch.onnx.export(
-        unet.model,
+        unet_exportable,
         (dummy_latent, dummy_t, dummy_audio),
         unet_fp32_path,
         input_names=["latent", "timestep", "audio_feat"],
@@ -74,7 +85,10 @@ with torch.no_grad():
         opset_version=17,
         do_constant_folding=True,
     )
-    size_mb = os.path.getsize(unet_fp32_path) / 1e6
+    # 权重可能存于外部文件（unet_fp32.onnx.data），取两者合计大小
+    data_path = unet_fp32_path + ".data"
+    size_mb = (os.path.getsize(unet_fp32_path) +
+               (os.path.getsize(data_path) if os.path.exists(data_path) else 0)) / 1e6
     print(f"  ✓ UNet FP32: {size_mb:.1f} MB")
 
 # ==================== 2. INT8 动态量化 ====================
