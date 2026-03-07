@@ -95,32 +95,44 @@ with torch.no_grad():
     print(f"  ✓ UNet FP32: {size_mb:.1f} MB")
 
 # ==================== 2. INT8 动态量化 ====================
-print(f"\n[2/3] INT8 动态量化（onnxruntime quantization）")
-try:
-    from onnxruntime.quantization import quantize_dynamic, QuantType
+# 策略：用 PyTorch 原生 quantize_dynamic 先量化模型权重（Conv+Linear→INT8），
+# 再导出量化后的模型为 ONNX，避免 onnxruntime 对外部数据格式的处理 bug
+print(f"\n[2/3] INT8 动态量化（PyTorch → ONNX）")
 
-    unet_int8_path = os.path.join(args.out_dir, "unet_int8.onnx")
-    # op_types_to_quantize 必须显式列出 Conv+MatMul，否则默认只量化 MatMul（体积不变）
-    quantize_dynamic(
-        unet_fp32_path,
+import torch.quantization as tq
+
+unet_int8_path = os.path.join(args.out_dir, "unet_int8.onnx")
+
+# PyTorch 动态量化：将 Linear（含 attention QKV projection）转为 INT8
+# Conv 层在 torch.quantization.quantize_dynamic 中默认不支持，需 fx_mode
+unet_q = tq.quantize_dynamic(
+    unet.model,
+    qconfig_spec={torch.nn.Linear},
+    dtype=torch.qint8,
+)
+unet_q_exportable = _UNetWrapper(unet_q)
+
+with torch.no_grad():
+    torch.onnx.export(
+        unet_q_exportable,
+        (dummy_latent, dummy_t, dummy_audio),
         unet_int8_path,
-        weight_type=QuantType.QInt8,
-        op_types_to_quantize=["Conv", "MatMul", "Gemm"],
-        use_external_data_format=True,
-        extra_options={"EnableSubgraph": True},
+        input_names=["latent", "timestep", "audio_feat"],
+        output_names=["pred_latent"],
+        dynamic_axes={
+            "latent":     {0: "batch"},
+            "audio_feat": {0: "batch"},
+            "pred_latent":{0: "batch"},
+        },
+        opset_version=17,
+        do_constant_folding=True,
     )
-    # 统计所有同名前缀文件（外部格式可能生成多个数据文件）
-    out_dir = os.path.dirname(unet_int8_path)
-    base = os.path.basename(unet_int8_path)
-    size_int8 = sum(
-        os.path.getsize(os.path.join(out_dir, f))
-        for f in os.listdir(out_dir)
-        if f == base or f.startswith(base)
-    ) / 1e6
-    print(f"  ✓ UNet INT8: {size_int8:.1f} MB（压缩率 {size_mb/size_int8:.1f}×）")
-except ImportError:
-    print("  ✗ onnxruntime 未安装，跳过 INT8 量化")
-    print("  请先安装：pip install onnxruntime")
+
+data_path_int8 = unet_int8_path + ".data"
+size_int8 = (os.path.getsize(unet_int8_path) +
+             (os.path.getsize(data_path_int8) if os.path.exists(data_path_int8) else 0)) / 1e6
+fp32_total = size_mb  # graph + external data（已在步骤1计算）
+print(f"  ✓ UNet Linear-INT8: {size_int8:.1f} MB（Linear 层量化；Conv 层保持 FP32）")
 
 # ==================== 3. 导出 VAE Decoder ====================
 vae_fp32_path = os.path.join(args.out_dir, "vae_decoder_fp32.onnx")
