@@ -48,8 +48,8 @@ parser.add_argument("--avatar_id",  type=str,   default="yongen",
 parser.add_argument("--audio",      type=str,   default="data/audio/yongen.wav")
 parser.add_argument("--threshold",  type=float, default=0.15,
                     help="MATS 视觉跳帧阈值（越低跳帧越少）")
-parser.add_argument("--audio_threshold", type=float, default=0.10,
-                    help="MATS 音频门控阈值：audio motion 超过此值则强制计算（0=禁用）")
+parser.add_argument("--max_skip",   type=int,   default=2,
+                    help="最大连续跳帧数，超过则强制重新计算（0=不限制）")
 parser.add_argument("--num_frames", type=int,   default=200,
                     help="生成帧数（0=全部）")
 parser.add_argument("--fps",        type=int,   default=25)
@@ -216,7 +216,7 @@ prev_lat     = None
 cached_pixel = None
 skip_count = 0
 unet_count = 0
-prev_audio_feat = None
+consec_skip = 0   # 当前连续跳过帧数
 
 with torch.no_grad():
     for i in range(total_frames):
@@ -236,17 +236,10 @@ with torch.no_grad():
             w = torch.from_numpy(np.array([wc])).to(device)
         audio_feat = pe(w)
 
-        # 音频运动检测：音频变化大时强制计算
-        if args.audio_threshold > 0 and prev_audio_feat is not None:
-            audio_motion = float((audio_feat.float() - prev_audio_feat.float()).norm() /
-                                 (prev_audio_feat.float().norm() + 1e-6))
-        else:
-            audio_motion = 0.0
-
         sync(); t0 = time.time()
 
-        audio_gate = (args.audio_threshold > 0 and audio_motion >= args.audio_threshold)
-        if motion >= args.threshold or cached_pixel is None or audio_gate:
+        max_skip_hit = (args.max_skip > 0 and consec_skip >= args.max_skip)
+        if motion >= args.threshold or cached_pixel is None or max_skip_hit:
             pred = unet.model(lat, timesteps,
                               encoder_hidden_states=audio_feat).sample
             pred = pred.to(dtype=vae.vae.dtype)
@@ -255,12 +248,12 @@ with torch.no_grad():
             cached_pixel = face.copy()
             skipped = False
             unet_count += 1
+            consec_skip = 0
         else:
             face  = cached_pixel
             skipped = True
             skip_count += 1
-
-        prev_audio_feat = audio_feat.detach()
+            consec_skip += 1
 
         sync(); elapsed = time.time() - t0
 
