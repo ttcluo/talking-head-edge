@@ -51,8 +51,8 @@ parser.add_argument("--num_windows",   type=int,   default=10,
                     help="评估窗口数（越多越准，建议 ≥10）")
 parser.add_argument("--width",         type=int,   default=512)
 parser.add_argument("--height",        type=int,   default=512)
-parser.add_argument("--threshold",     type=float, default=0.10,
-                    help="音频特征 L2 距离阈值，低于此值跳过 DDIM")
+parser.add_argument("--threshold",     type=float, default=0.40,
+                    help="音频特征 L2 距离阈值，低于此值跳过 DDIM（EchoMimic 音频运动约 0.45，建议 0.35-0.55）")
 parser.add_argument("--output_dir",    type=str,   default="profile_results")
 args = parser.parse_args()
 
@@ -202,8 +202,14 @@ with torch.no_grad():
     face_cond = face_locator(face_mask)  # (1, C, 1, h, w)
 
 # ==================== 单窗口 DDIM ====================
-def run_ddim_window(audio_window):
-    """对一个上下文窗口运行完整 DDIM，返回 latent (1, 4, ctx, lh, lw)"""
+def run_ddim_window(audio_window, seed=None):
+    """对一个上下文窗口运行完整 DDIM，返回 latent (1, 4, ctx, lh, lw)
+    seed: 固定初始噪声，确保基线与缓存版对齐（质量对比有效性）
+    """
+    if seed is not None:
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
     lat = torch.randn(1, n_ch, ctx, lh, lw, device=device, dtype=dtype)
     fc  = face_cond.expand(-1, -1, ctx, -1, -1)
     aud = audio_window.unsqueeze(0)  # (1, ctx, ...)
@@ -229,7 +235,7 @@ t_baseline = []
 for w in range(args.num_windows):
     aud_w = audio_fea[w * ctx:(w + 1) * ctx]  # (ctx, 5, 384)
     sync(); t0 = time.time()
-    lat = run_ddim_window(aud_w)
+    lat = run_ddim_window(aud_w, seed=w * 1000)
     sync(); t_baseline.append(time.time() - t0)
 
     frames_w = []
@@ -274,10 +280,10 @@ skip_flags     = [False]
 
 last_lat = baseline_latents[0]  # 第 0 窗口总是跑
 
-# 窗口 0：直接复用基线
+# 窗口 0：与基线使用相同种子，确保质量对比公平
 aud_0 = audio_fea[:ctx]
 sync(); t0 = time.time()
-lat0  = run_ddim_window(aud_0)
+lat0  = run_ddim_window(aud_0, seed=0)
 sync(); t_cached.append(time.time() - t0)
 last_lat = lat0.cpu()
 cached_frames.append(baseline_frames[0])  # 同基线
@@ -298,11 +304,11 @@ for w in range(1, args.num_windows):
         sync(); t_cached.append(time.time() - t0)
         cached_frames.append(frames_w)
     else:
-        # 完整 DDIM
+        # 完整 DDIM（与基线同种子，确保质量对比公平）
         skip_flags.append(False)
         aud_w = audio_fea[w * ctx:(w + 1) * ctx]
         sync(); t0 = time.time()
-        lat = run_ddim_window(aud_w)
+        lat = run_ddim_window(aud_w, seed=w * 1000)
         sync(); t_cached.append(time.time() - t0)
         last_lat = lat.cpu()
         frames_w = []
