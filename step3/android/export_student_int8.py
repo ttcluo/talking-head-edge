@@ -162,25 +162,28 @@ try:
 
 except Exception as e:
     import traceback
-    print(f"\n⚠ 静态量化 trace 失败，回退到动态量化（Conv2d+Linear）...")
+    print(f"\n⚠ 静态量化 trace 失败（Conv2d JIT 量化 PyTorch 2.0 已知限制），回退到 FP16 导出...")
     traceback.print_exc()
 
-    # 回退：动态量化同时量化 Linear 和 Conv2d
-    model2 = UNet2DConditionModel(**student_cfg)
-    model2.load_state_dict(ckpt, strict=False)
-    model2.set_attn_processor(AttnProcessor())
-    model2 = model2.float().cpu().eval()
-    wrapper2 = _UNetWrapper(model2)
+    # 回退：FP16（减半大小，JIT 完全兼容）
+    model_fp16 = UNet2DConditionModel(**student_cfg)
+    model_fp16.load_state_dict(ckpt, strict=False)
+    model_fp16.set_attn_processor(AttnProcessor())
+    model_fp16 = model_fp16.half().cpu().eval()
+    wrapper_fp16 = _UNetWrapper(model_fp16)
 
-    wrapper2_q = tq.quantize_dynamic(
-        wrapper2,
-        qconfig_spec={nn.Linear, nn.Conv2d},
-        dtype=torch.qint8,
-    )
+    dummy_latent_h = dummy_latent.half()
+    dummy_audio_h  = dummy_audio.half()
+
     with torch.no_grad():
-        traced2 = torch.jit.trace(wrapper2_q, (dummy_latent, dummy_t, dummy_audio), strict=False)
-    opt2 = optimize_for_mobile(traced2)
-    out2 = os.path.join(args.out_dir, "unet_student_dynamic_int8.ptl")
-    opt2._save_for_lite_interpreter(out2)
-    sz2 = os.path.getsize(out2) / 1e6
-    print(f"  ✓ 动态 INT8 (Linear+Conv): {out2}  ({sz2:.1f} MB)")
+        traced_fp16 = torch.jit.trace(
+            wrapper_fp16,
+            (dummy_latent_h, dummy_t, dummy_audio_h),
+            strict=False,
+        )
+    opt_fp16 = optimize_for_mobile(traced_fp16)
+    out_fp16 = os.path.join(args.out_dir, "unet_student_fp16.ptl")
+    opt_fp16._save_for_lite_interpreter(out_fp16)
+    sz_fp16 = os.path.getsize(out_fp16) / 1e6
+    print(f"  ✓ Student FP16: {out_fp16}  ({sz_fp16:.1f} MB)")
+    print(f"  理论 FP32={n_params*4/1e6:.0f}MB → FP16={sz_fp16:.1f}MB  压缩比={n_params*4/1e6/sz_fp16:.1f}×")
