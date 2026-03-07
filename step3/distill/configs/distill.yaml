@@ -1,7 +1,6 @@
 # MuseTalk UNet 知识蒸馏训练配置
 # Teacher: musetalkV15/unet.pth (~850MB FP32, [320,640,1280,1280])
-# Student: student_musetalk.json (~210MB FP32, [128,256,512,512])
-# 目标: 在端侧可用的模型大小内（INT8 ~52MB）保持 SSIM>0.97、LSE-C 零损失
+# Student: student_musetalk.json (~136MB FP32, [128,256,512,512])
 
 exp_name: 'distill_v1'
 output_dir: './exp_out/distill/'
@@ -9,33 +8,24 @@ output_dir: './exp_out/distill/'
 # ========== 模型路径 ==========
 teacher_unet_path: "models/musetalkV15/unet.pth"
 teacher_unet_config: "models/musetalkV15/musetalk.json"
-student_unet_config: null  # 运行时由 --student_config 传入，或默认 step3/distill/configs/student_musetalk.json
 pretrained_model_name_or_path: "./models"
 vae_type: "sd-vae"
 whisper_path: "./models/whisper"
 
-# ========== 蒸馏损失权重 ==========
-loss_params:
-  output_distill: 1.0       # MSE(student_output, teacher_output) —— 最重要
-  feat_distill: 0.1         # cosine_sim 特征蒸馏（中间层对齐）
-  l1_recon: 0.5             # L1(student_output, gt_latent) —— 保证真实感
-  vgg_loss: 0.01            # 感知损失（VGG feature match on decoded image）
-  sync_loss: 0.1            # SyncNet 唇同步损失
+# ========== 数据集（与 stage1.yaml 保持一致）==========
+padding_pixel_mouth: 10
+cropping_jaw2edge_margin_mean: 10
+cropping_jaw2edge_margin_std: 10
+crop_type: "crop_resize"
+random_margin_method: "normal"
+num_backward_frames: 16
+ref_dropout_rate: 0
+use_adapted_weight: False
+syncnet_config_path: "./configs/training/syncnet.yaml"
 
-# ========== 特征蒸馏层配置 ==========
-# 从 Teacher 哪些层提取特征做对齐
-# MuseTalk UNet 的 down_blocks[0/1/2]、mid_block、up_blocks[1/2/3] 输出
-feat_distill_layers:
-  - "down_blocks.0"    # [B,320,32,32] teacher → [B,128,32,32] student
-  - "down_blocks.1"    # [B,640,16,16] → [B,256,16,16]
-  - "mid_block"        # [B,1280,8,8]  → [B,512,8,8]
-  - "up_blocks.2"      # [B,640,16,16] → [B,256,16,16]
-  - "up_blocks.3"      # [B,320,32,32] → [B,128,32,32]
-
-# ========== 数据配置 ==========
 data:
   dataset_key: "HDTF"
-  train_bs: 16              # 每 GPU batch（蒸馏比原训练省显存，可适当增大）
+  train_bs: 16
   image_size: 256
   n_sample_frames: 1
   num_workers: 8
@@ -46,15 +36,31 @@ data:
   contorl_face_min_size: True
   min_face_size: 150
 
+# ========== 蒸馏损失权重 ==========
+loss_params:
+  output_distill: 1.0     # MSE(student_out, teacher_out) —— 最核心
+  feat_distill: 0.1       # cosine_sim 中间特征对齐
+  l1_recon: 0.5           # L1(student_out, gt_latent)
+  vgg_loss: 0.01          # VGG 感知损失
+  sync_loss: 0.1          # SyncNet 唇同步损失
+
+# ========== 特征蒸馏层（从 Teacher/Student 同名 block 取特征）==========
+feat_distill_layers:
+  - "down_blocks.0"
+  - "down_blocks.1"
+  - "mid_block"
+  - "up_blocks.2"
+  - "up_blocks.3"
+
 # ========== 优化器 ==========
 solver:
   gradient_accumulation_steps: 2
-  mixed_precision: 'fp16'              # 蒸馏训练用 fp16 节省显存
+  mixed_precision: 'fp16'
   enable_xformers_memory_efficient_attention: True
   gradient_checkpointing: True
-  max_train_steps: 100000              # 蒸馏比从头训练收敛快，10万步通常足够
+  max_train_steps: 100000
   max_grad_norm: 1.0
-  learning_rate: 5.0e-5                # 蒸馏初始 lr 可以稍大
+  learning_rate: 5.0e-5
   scale_lr: False
   lr_warmup_steps: 500
   lr_scheduler: "cosine"
@@ -69,6 +75,5 @@ total_limit: 5
 checkpointing_steps: 5000
 val_freq: 1000
 num_images_to_keep: 8
-syncnet_config_path: "./configs/training/syncnet.yaml"
 
 seed: 42
