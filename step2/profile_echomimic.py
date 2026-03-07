@@ -165,7 +165,10 @@ print(f"  ✓ FaceLocator 加载完成")
 # Whisper 音频编码（EchoMimic 使用与 MuseTalk 相同的 Whisper-tiny）
 from src.models.whisper.audio2feature import load_audio_model
 
-whisper_path = os.path.join(args.pretrained_dir, "whisper")
+# EchoMimic 使用 audio_processor/whisper_tiny.pt（OpenAI 格式）
+whisper_path = os.path.join(args.pretrained_dir, "audio_processor", "whisper_tiny.pt")
+if not os.path.exists(whisper_path):
+    whisper_path = os.path.join(args.pretrained_dir, "whisper")
 if not os.path.exists(whisper_path):
     whisper_path = os.path.expanduser("~/MuseTalk/models/whisper")
     print(f"  Whisper: 复用 MuseTalk 的 {whisper_path}")

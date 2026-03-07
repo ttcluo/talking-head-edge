@@ -167,7 +167,11 @@ face_mask[:, :, :, args.height//4:args.height*3//4, args.width//4:args.width*3//
 # 音频特征
 whisper_ok = False
 audio_fea  = None
-whisper_path = os.path.join(args.pretrained_dir, "whisper")
+# EchoMimic 使用 audio_processor/whisper_tiny.pt（OpenAI 格式）
+whisper_path = os.path.join(args.pretrained_dir, "audio_processor", "whisper_tiny.pt")
+if not os.path.exists(whisper_path):
+    # 兼容旧路径
+    whisper_path = os.path.join(args.pretrained_dir, "whisper")
 if not os.path.exists(whisper_path):
     whisper_path = os.path.expanduser("~/MuseTalk/models/whisper")
 try:
