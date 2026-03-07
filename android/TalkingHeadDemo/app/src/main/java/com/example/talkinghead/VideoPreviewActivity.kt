@@ -48,10 +48,12 @@ class VideoPreviewActivity : AppCompatActivity() {
     }
 
     private fun runGenerate() = scope.launch(Dispatchers.IO) {
-        binding.btnGenerate.isEnabled = false
-        binding.progressBar.visibility = View.VISIBLE
-        binding.progressBar.progress = 0
-        withContext(Dispatchers.Main) { setStatus("加载序列...") }
+        withContext(Dispatchers.Main) {
+            binding.btnGenerate.isEnabled = false
+            binding.progressBar.visibility = View.VISIBLE
+            binding.progressBar.progress = 0
+            setStatus("加载序列...")
+        }
 
         val seq = VideoSequenceLoader.load(this@VideoPreviewActivity)
         if (seq == null) {
@@ -92,8 +94,10 @@ class VideoPreviewActivity : AppCompatActivity() {
         }
 
         val n = seq.numFrames
-        binding.progressBar.max = n
-        withContext(Dispatchers.Main) { setStatus("生成中 0 / $n...") }
+        withContext(Dispatchers.Main) {
+            binding.progressBar.max = n
+            setStatus("生成中 0 / $n...")
+        }
         Log.i(TAG, "开始生成 $n 帧")
 
         val frames = ArrayList<Bitmap>(n)
