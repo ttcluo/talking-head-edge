@@ -28,13 +28,23 @@ args = parser.parse_args()
 os.makedirs(args.out_dir, exist_ok=True)
 os.chdir(MUSE_ROOT)
 
+# 关闭 SDPA，否则 ONNX 导出会报 aten::scaled_dot_product_attention 不支持
+try:
+    torch.backends.cuda.enable_flash_sdp(False)
+    torch.backends.cuda.enable_mem_efficient_sdp(False)
+    torch.backends.cuda.enable_math_sdp(True)
+except Exception:
+    pass
+
 print("=" * 50)
 print("  VAE Decoder ONNX 导出")
 print("=" * 50)
 
 from diffusers import AutoencoderKL
+from diffusers.models.attention_processor import AttnProcessor
 
 vae = AutoencoderKL.from_pretrained(args.vae_dir)
+vae.set_attn_processor(AttnProcessor())  # 避免 SDPA，用 ONNX 可导出的 attention
 vae.eval()
 
 # 只导出 decoder：输入 [1,4,32,32]，输出 [1,3,256,256]
