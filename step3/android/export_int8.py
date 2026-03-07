@@ -29,7 +29,6 @@ parser.add_argument("--num_calib",       type=int, default=50,
                     help="INT8 校准样本数（越多越准，越慢）")
 args = parser.parse_args()
 
-os.makedirs(args.out_dir, flat=False) if not os.path.exists(args.out_dir) else None
 os.makedirs(args.out_dir, exist_ok=True)
 device = "cpu"  # INT8 量化在 CPU 上进行
 
