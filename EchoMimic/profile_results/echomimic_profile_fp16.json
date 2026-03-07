@@ -10,17 +10,17 @@
   },
   "timing_ms": {
     "audio_encode": 0,
-    "reference_unet_once": 21.459174156188965,
-    "denoising_unet_per_step": 107.66824086507161,
-    "denoising_unet_total": 3230.0472259521484,
-    "vae_decode_per_frame": 37.862539291381836,
-    "total_pipeline": 4196.747938791911
+    "reference_unet_once": 21.598219871520996,
+    "denoising_unet_per_step": 108.04687341054282,
+    "denoising_unet_total": 3241.4062023162846,
+    "vae_decode_per_frame": 37.901294231414795,
+    "total_pipeline": 4208.4081172943115
   },
-  "fps": 5.718713715960915,
+  "fps": 5.7028689545039155,
   "comparison": {
     "musetalk_fp32_fps": 18.4,
     "musetalk_fp16_fps": 21.5,
-    "echomimic_fps": 5.718713715960915,
-    "speedup_needed": 0.3107996584761367
+    "echomimic_fps": 5.7028689545039155,
+    "speedup_needed": 0.3099385301360824
   }
 }

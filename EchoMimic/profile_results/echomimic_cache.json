@@ -8,15 +8,15 @@
   },
   "baseline": {
     "fps": 3.6,
-    "ms_per_window": 3309.4
+    "ms_per_window": 3329.7
   },
   "cached": {
     "fps": 11.2,
-    "ms_per_window": 1068.0,
+    "ms_per_window": 1071.7,
     "skip_rate": 0.8,
     "ssim": 0.8857,
     "psnr": 23.47,
-    "speedup": 3.1
+    "speedup": 3.11
   },
   "motion_stats": {
     "mean": 0.4494,

@@ -5,19 +5,19 @@
     "opset": 17
   },
   "pytorch_fp16": {
-    "unet_ms": 25.0,
+    "unet_ms": 26.36,
     "vae_enc_ms": 5.19,
     "vae_dec_ms": 9.54,
-    "total_ms": 39.73,
-    "fps": 25.2
+    "total_ms": 41.09,
+    "fps": 24.3
   },
   "onnx_runtime": {
-    "unet_ms": 16.3,
-    "vae_enc_ms": 7.73,
-    "vae_dec_ms": 14.42,
-    "total_ms": 38.44,
-    "fps": 26.0,
-    "speedup_vs_pt": 1.03
+    "unet_ms": 16.41,
+    "vae_enc_ms": 7.75,
+    "vae_dec_ms": 14.46,
+    "total_ms": 38.61,
+    "fps": 25.9,
+    "speedup_vs_pt": 1.06
   },
   "tensorrt": {
     "unet_ms": null,
@@ -35,8 +35,8 @@
   },
   "hybrid_deployment": {
     "description": "MATS 像素缓存 + ORT/TRT UNet + PT FP16 VAE（实际部署最优策略）",
-    "mats_ort_unet_fps": 62.3,
-    "mats_ort_unet_speedup": 2.8,
+    "mats_ort_unet_fps": 62.2,
+    "mats_ort_unet_speedup": 2.79,
     "mats_trt_unet_fps": null,
     "mats_trt_unet_speedup": null
   },

@@ -5,23 +5,23 @@
     "num_frames": 200
   },
   "baseline": {
-    "fps": 22.3,
-    "ms_per_frame": 44.9
+    "fps": 22.9,
+    "ms_per_frame": 43.7
   },
   "p3_latent_cache": {
-    "fps": 35.0,
-    "ms_per_frame": 28.6,
-    "speedup": 1.57,
+    "fps": 35.5,
+    "ms_per_frame": 28.1,
+    "speedup": 1.55,
     "skip_rate": 0.58,
     "unet_calls": 84,
     "ssim": 1.0,
-    "psnr": 55.57,
+    "psnr": 55.58,
     "note": "跳帧仍需 VAE decode cached latent"
   },
   "p3plus_pixel_cache": {
-    "fps": 45.6,
-    "ms_per_frame": 21.9,
-    "speedup": 2.05,
+    "fps": 46.6,
+    "ms_per_frame": 21.5,
+    "speedup": 2.04,
     "skip_rate": 0.58,
     "unet_calls": 84,
     "ssim": 1.0,

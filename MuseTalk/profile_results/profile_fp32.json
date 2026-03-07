@@ -7,15 +7,15 @@
     "device": "cuda"
   },
   "timing_ms": {
-    "audio_encode": 0,
-    "face_detect": 0.08761405944824219,
-    "face_parse": 0.026569366455078125,
-    "vae_encode": 8.985943794250488,
-    "unet_forward": 28.753395080566406,
-    "vae_decode": 14.693045616149902,
-    "blending": 1.3866853713989258,
-    "total_per_frame": 54.323015213012695
+    "audio_encode": 1539.684534072876,
+    "face_detect": 0.1918172836303711,
+    "face_parse": 0.026946067810058594,
+    "vae_encode": 9.099836349487305,
+    "unet_forward": 26.857142448425293,
+    "vae_decode": 14.68822956085205,
+    "blending": 1.8628263473510742,
+    "total_per_frame": 53.08552265167236
   },
-  "fps": 18.40840380598861,
-  "bottleneck": "UNet 前向推理"
+  "fps": 18.837527635578375,
+  "bottleneck": "Whisper 音频编码"
 }
