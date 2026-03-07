@@ -266,14 +266,28 @@ skip_rate = skip_count / total_frames
 print(f"  MATS 完成：{fps_mats:.1f} FPS  跳过率={skip_rate:.1%}")
 
 # ==================== SSIM / PSNR ====================
-from skimage.metrics import structural_similarity as ssim_fn, peak_signal_noise_ratio as psnr_fn
+def _ssim_psnr(img1, img2):
+    """全局近似 SSIM + PSNR（无需 skimage）"""
+    f1 = img1.astype(np.float64)
+    f2 = img2.astype(np.float64)
+    mse = np.mean((f1 - f2) ** 2)
+    psnr = 10 * np.log10(255 ** 2 / mse) if mse > 1e-10 else 100.0
+    g1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY).astype(np.float64)
+    g2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY).astype(np.float64)
+    C1, C2 = (0.01 * 255) ** 2, (0.03 * 255) ** 2
+    mu1, mu2 = g1.mean(), g2.mean()
+    s1 = np.mean((g1 - mu1) ** 2)
+    s2 = np.mean((g2 - mu2) ** 2)
+    s12 = np.mean((g1 - mu1) * (g2 - mu2))
+    ssim = ((2*mu1*mu2 + C1) * (2*s12 + C2)) / ((mu1**2 + mu2**2 + C1) * (s1 + s2 + C2))
+    return float(ssim), float(psnr)
+
 print(f"\n[质量评估：SSIM / PSNR（真实音频）]")
 ssim_vals, psnr_vals = [], []
 for b_f, m_f in zip(baseline_out, mats_out):
-    b_g = cv2.cvtColor(b_f, cv2.COLOR_BGR2GRAY)
-    m_g = cv2.cvtColor(m_f, cv2.COLOR_BGR2GRAY)
-    ssim_vals.append(ssim_fn(b_g, m_g, data_range=255))
-    psnr_vals.append(psnr_fn(b_f, m_f, data_range=255))
+    s, p = _ssim_psnr(b_f, m_f)
+    ssim_vals.append(s)
+    psnr_vals.append(p)
 mean_ssim = float(np.mean(ssim_vals))
 mean_psnr = float(np.mean(psnr_vals))
 print(f"  SSIM={mean_ssim:.4f}  PSNR={mean_psnr:.2f} dB")
