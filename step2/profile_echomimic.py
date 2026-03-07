@@ -115,7 +115,10 @@ print(f"  ✓ VAE 加载完成")
 # Reference UNet（SD UNet 2D，冻结结构）
 from src.models.unet_2d_condition import UNet2DConditionModel
 
-sd_base_path = os.path.join(args.pretrained_dir, "stable-diffusion-v1-5")
+# EchoMimic 用 sd-image-variations-diffusers 作为 base model（非 stable-diffusion-v1-5）
+sd_base_path = os.path.join(args.pretrained_dir, "sd-image-variations-diffusers")
+if not os.path.exists(sd_base_path):
+    sd_base_path = os.path.join(args.pretrained_dir, "stable-diffusion-v1-5")
 reference_unet = UNet2DConditionModel.from_pretrained(
     sd_base_path, subfolder="unet"
 ).to(dtype=dtype, device=device)
