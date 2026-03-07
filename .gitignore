@@ -16,8 +16,7 @@ env/
 # Jupyter
 .ipynb_checkpoints/
 
-# 实验输出（不上传大文件）
-profile_results/
+# 实验输出（视频不上传，JSON 结果文件上传）
 results/
 outputs/
 *.mp4
@@ -30,6 +29,24 @@ models/
 *.bin
 *.ckpt
 *.safetensors
+*.pt
+
+# MuseTalk / EchoMimic 大文件（代码保留，数据和权重排除）
+MuseTalk/models/
+MuseTalk/data/
+MuseTalk/results/
+MuseTalk/output/
+MuseTalk/.git/
+EchoMimic/pretrained_weights/
+EchoMimic/output/
+EchoMimic/.git/
+
+# ONNX / TRT 导出产物（体积大）
+*.onnx
+*.trt
+*.engine
+models/onnx/
+models/trt/
 
 # 数据集
 dataset/
