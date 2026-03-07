@@ -50,6 +50,13 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="完整基准测试（CPU vs NNAPI × 20次）"
+        android:paddingBottom="4dp"/>
+
+    <Button
+        android:id="@+id/btnVideoPreview"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="视频预览（UNet+VAE 端上生成）"
         android:paddingBottom="8dp"/>
 
     <ScrollView

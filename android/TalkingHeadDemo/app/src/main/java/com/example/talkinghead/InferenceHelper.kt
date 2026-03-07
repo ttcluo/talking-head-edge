@@ -94,16 +94,18 @@ class InferenceHelper(
         benchRuns: Int = 20,
     ): BenchResult {
         // warmup
+        Log.i(TAG, "benchmark: warmup $warmupRuns runs...")
         repeat(warmupRuns) { infer(latent, audioFeat) }
 
         val latencies = mutableListOf<Long>()
+        Log.i(TAG, "benchmark: bench $benchRuns runs...")
         repeat(benchRuns) {
             val t0 = System.nanoTime()
             infer(latent, audioFeat)
             latencies.add((System.nanoTime() - t0) / 1_000_000)
         }
 
-        return BenchResult(
+        val result = BenchResult(
             provider    = if (useNnapi) "NNAPI" else "CPU",
             warmupRuns  = warmupRuns,
             benchRuns   = benchRuns,
@@ -112,6 +114,8 @@ class InferenceHelper(
             maxMs       = (latencies.maxOrNull() ?: 0L).toDouble(),
             fps         = 1000.0 / latencies.average(),
         )
+        Log.i(TAG, "benchmark done: ${"%.1f".format(result.avgMs)} ms/frame, ${"%.1f".format(result.fps)} FPS (${result.provider})")
+        return result
     }
 
     fun close() {

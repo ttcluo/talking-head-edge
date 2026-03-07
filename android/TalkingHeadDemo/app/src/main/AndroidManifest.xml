@@ -20,6 +20,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".VideoPreviewActivity"
+            android:exported="false"
+            android:title="视频预览" />
     </application>
 
 </manifest>
