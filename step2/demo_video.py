@@ -174,8 +174,11 @@ baseline_t   = []
 with torch.no_grad():
     for i in range(0, total_frames, args.batch_size):
         bs = min(args.batch_size, total_frames - i)
-        w_batch = torch.from_numpy(
-            np.stack(whisper_chunks[i:i+bs])).to(device)
+        chunk_slice = whisper_chunks[i:i+bs]
+        if isinstance(chunk_slice[0], torch.Tensor):
+            w_batch = torch.stack([c.cpu() for c in chunk_slice]).to(device)
+        else:
+            w_batch = torch.from_numpy(np.stack(chunk_slice)).to(device)
         lat_batch = torch.cat(
             [input_latent_list_cycle[j % cycle_len] for j in range(i, i+bs)], 0
         ).to(device=device, dtype=weight_dtype)
@@ -223,7 +226,11 @@ with torch.no_grad():
         else:
             motion = 999.0
 
-        w = torch.from_numpy(whisper_chunks[i:i+1]).to(device)
+        wc = whisper_chunks[i]
+        if isinstance(wc, torch.Tensor):
+            w = wc.cpu().unsqueeze(0).to(device)
+        else:
+            w = torch.from_numpy(np.array([wc])).to(device)
         audio_feat = pe(w)
 
         sync(); t0 = time.time()
