@@ -103,7 +103,9 @@ vae = AutoencoderKL.from_pretrained(vae_path).to(device, dtype)
 vae.eval()
 
 from src.models.unet_2d_condition import UNet2DConditionModel
-sd_base = os.path.join(args.pretrained_dir, "stable-diffusion-v1-5")
+sd_base = os.path.join(args.pretrained_dir, "sd-image-variations-diffusers")
+if not os.path.exists(sd_base):
+    sd_base = os.path.join(args.pretrained_dir, "stable-diffusion-v1-5")
 reference_unet = UNet2DConditionModel.from_pretrained(
     sd_base, subfolder="unet").to(dtype=dtype, device=device)
 reference_unet.load_state_dict(
