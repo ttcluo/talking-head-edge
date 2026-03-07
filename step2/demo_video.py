@@ -83,7 +83,7 @@ img_list = sorted(glob.glob(os.path.join(avatar_path, "full_imgs", "*.[jpJP][pnP
                   key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
 mask_list_files = sorted(glob.glob(os.path.join(avatar_path, "mask", "*.[jpJP][pnPN]*[gG]")),
                          key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
-from musetalk.utils.utils import read_imgs
+from musetalk.utils.preprocessing import read_imgs
 frame_list_cycle = read_imgs(img_list)
 mask_list_cycle  = read_imgs(mask_list_files)
 cycle_len = len(frame_list_cycle)
