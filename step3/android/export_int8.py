@@ -19,7 +19,6 @@ import os
 import sys
 import numpy as np
 import torch
-import onnx
 
 MUSETALK_ROOT = os.environ.get("MUSE_ROOT", os.path.expanduser("~/MuseTalk"))
 if MUSETALK_ROOT not in sys.path:
@@ -100,23 +99,20 @@ print(f"\n[2/3] INT8 动态量化（onnxruntime quantization）")
 try:
     from onnxruntime.quantization import quantize_dynamic, QuantType
 
-    # 将外部数据文件嵌入为单一自包含 ONNX（解决 quant_pre_process 找不到外部文件的问题）
-    unet_inline_path = os.path.join(args.out_dir, "unet_fp32_inline.onnx")
-    print("  合并外部权重文件为自包含 ONNX（可能需要数分钟）...")
-    inline_model = onnx.load(unet_fp32_path, load_external_data=True)
-    onnx.save(inline_model, unet_inline_path)
-    inline_size = os.path.getsize(unet_inline_path) / 1e6
-    print(f"  ✓ 自包含 FP32: {inline_size:.1f} MB")
-
     unet_int8_path = os.path.join(args.out_dir, "unet_int8.onnx")
+    # use_external_data_format=True：onnxruntime 自行读取外部权重文件，量化后也以外部格式输出
     quantize_dynamic(
-        unet_inline_path,
+        unet_fp32_path,
         unet_int8_path,
         weight_type=QuantType.QInt8,
+        use_external_data_format=True,
         extra_options={"EnableSubgraph": True},
     )
-    size_int8 = os.path.getsize(unet_int8_path) / 1e6
-    print(f"  ✓ UNet INT8: {size_int8:.1f} MB（压缩率 {inline_size/size_int8:.1f}×）")
+    # INT8 输出也是外部格式，统计主文件 + 数据文件合计大小
+    data_path_int8 = unet_int8_path + ".data"
+    size_int8 = (os.path.getsize(unet_int8_path) +
+                 (os.path.getsize(data_path_int8) if os.path.exists(data_path_int8) else 0)) / 1e6
+    print(f"  ✓ UNet INT8: {size_int8:.1f} MB（压缩率 {size_mb/size_int8:.1f}×）")
 except ImportError:
     print("  ✗ onnxruntime 未安装，跳过 INT8 量化")
     print("  请先安装：pip install onnxruntime")
