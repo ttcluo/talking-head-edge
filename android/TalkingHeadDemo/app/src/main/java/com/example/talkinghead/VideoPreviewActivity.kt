@@ -119,8 +119,9 @@ class VideoPreviewActivity : AppCompatActivity() {
                 binding.progressBar.progress = i + 1
                 binding.tvStatus.text = "生成中 ${i + 1} / $n"
             }
-            if (i == 0 || i == n - 1 || (n > 10 && i == n / 2)) {
-                Log.i(TAG, "[性能] 帧 $i: UNet=${unetMsList[i]} ms, VAE=${vaeMsList[i]} ms")
+            // 每 5 帧打一次 + 首帧/次帧(看预热) + 末帧，避免首帧后长时间无日志
+            if (i == 0 || i == 1 || i % 5 == 0 || i == n - 1) {
+                Log.i(TAG, "[性能] 帧 $i/${n}: UNet=${unetMsList[i]} ms, VAE=${vaeMsList[i]} ms")
             }
         }
 
