@@ -140,8 +140,10 @@ def compose_frame(latent_pred, idx):
     frame_idx = idx % len(input_img_list)
     full = input_img_list[frame_idx].copy()
     y1, y2, x1, x2 = coords_list[frame_idx]
-    patch = cv2.resize(img, (x2 - x1, y2 - y1))
-    full[y1:y2, x1:x2] = patch
+    w, h_box = max(1, x2 - x1), max(1, y2 - y1)
+    if w > 0 and h_box > 0 and full is not None:
+        patch = cv2.resize(img, (w, h_box))
+        full[y1:y2, x1:x2] = patch
     return full
 
 # ==================== 推理 ====================
