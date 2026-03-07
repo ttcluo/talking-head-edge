@@ -265,6 +265,19 @@ fps_mats = total_frames / sum(mats_t)
 skip_rate = skip_count / total_frames
 print(f"  MATS 完成：{fps_mats:.1f} FPS  跳过率={skip_rate:.1%}")
 
+# ==================== SSIM / PSNR ====================
+from skimage.metrics import structural_similarity as ssim_fn, peak_signal_noise_ratio as psnr_fn
+print(f"\n[质量评估：SSIM / PSNR（真实音频）]")
+ssim_vals, psnr_vals = [], []
+for b_f, m_f in zip(baseline_out, mats_out):
+    b_g = cv2.cvtColor(b_f, cv2.COLOR_BGR2GRAY)
+    m_g = cv2.cvtColor(m_f, cv2.COLOR_BGR2GRAY)
+    ssim_vals.append(ssim_fn(b_g, m_g, data_range=255))
+    psnr_vals.append(psnr_fn(b_f, m_f, data_range=255))
+mean_ssim = float(np.mean(ssim_vals))
+mean_psnr = float(np.mean(psnr_vals))
+print(f"  SSIM={mean_ssim:.4f}  PSNR={mean_psnr:.2f} dB")
+
 # ==================== 合成对比视频 ====================
 print(f"\n[合成对比视频]")
 speedup = fps_mats / fps_base
@@ -327,5 +340,6 @@ print(f"""
   基线：{fps_base:.1f} FPS
   MATS：{fps_mats:.1f} FPS  (加速 {speedup:.2f}×)
   跳过率：{skip_rate:.1%}  (UNet 实际调用 {unet_count}/{total_frames} 帧)
+  SSIM：{mean_ssim:.4f}  PSNR：{mean_psnr:.2f} dB  (真实音频，baseline vs MATS)
   输出：{args.out}
 """)
