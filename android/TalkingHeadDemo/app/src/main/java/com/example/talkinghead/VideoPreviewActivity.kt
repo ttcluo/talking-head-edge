@@ -98,21 +98,45 @@ class VideoPreviewActivity : AppCompatActivity() {
             binding.progressBar.max = n
             setStatus("生成中 0 / $n...")
         }
-        Log.i(TAG, "开始生成 $n 帧")
+        val totalStartNs = System.nanoTime()
+        Log.i(TAG, "[性能] 开始生成 $n 帧")
 
         val frames = ArrayList<Bitmap>(n)
+        val unetMsList = LongArray(n)
+        val vaeMsList = LongArray(n)
         for (i in 0 until n) {
             val lat = seq.getLatentFrame(i)
             val aud = seq.getAudioFrame(i)
+            val tUnet0 = System.nanoTime()
             val pred4ch = unet.infer(lat, aud)
+            unetMsList[i] = (System.nanoTime() - tUnet0) / 1_000_000
+            val tVae0 = System.nanoTime()
             val bitmap = vae.decode(pred4ch)
+            vaeMsList[i] = (System.nanoTime() - tVae0) / 1_000_000
             frames.add(bitmap)
             withContext(Dispatchers.Main) {
                 binding.ivPreview.setImageBitmap(bitmap)
                 binding.progressBar.progress = i + 1
                 binding.tvStatus.text = "生成中 ${i + 1} / $n"
             }
+            if (i == 0 || i == n - 1 || (n > 10 && i == n / 2)) {
+                Log.i(TAG, "[性能] 帧 $i: UNet=${unetMsList[i]} ms, VAE=${vaeMsList[i]} ms")
+            }
         }
+
+        val totalMs = (System.nanoTime() - totalStartNs) / 1_000_000
+        val unetAvgFirst = unetMsList[0]
+        val vaeAvgFirst = vaeMsList[0]
+        val unetAvgSteady = if (n > 1) unetMsList.drop(1).sum() / (n - 1) else unetMsList[0]
+        val vaeAvgSteady = if (n > 1) vaeMsList.drop(1).sum() / (n - 1) else vaeMsList[0]
+        val frameAvgSteady = unetAvgSteady + vaeAvgSteady
+        val fpsSteady = if (frameAvgSteady > 0) 1000.0 / frameAvgSteady else 0.0
+        Log.i(TAG, "[性能] --------- 生成耗时汇总 ---------")
+        Log.i(TAG, "[性能] 总耗时: ${totalMs} ms (${totalMs / 1000.0} s), 帧数: $n")
+        Log.i(TAG, "[性能] 首帧(含预热): UNet=${unetAvgFirst} ms, VAE=${vaeAvgFirst} ms")
+        Log.i(TAG, "[性能] 稳态平均(帧2~$n): UNet=${unetAvgSteady} ms, VAE=${vaeAvgSteady} ms, 单帧总=${frameAvgSteady} ms")
+        Log.i(TAG, "[性能] 等效 FPS(稳态): ${"%.2f".format(fpsSteady)} (实时 25fps 需单帧≤40ms)")
+        Log.i(TAG, "[性能] ------------------------------")
 
         unet.close()
         vae.close()
