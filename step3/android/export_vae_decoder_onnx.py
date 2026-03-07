@@ -38,12 +38,14 @@ vae = AutoencoderKL.from_pretrained(args.vae_dir)
 vae.eval()
 
 # 只导出 decoder：输入 [1,4,32,32]，输出 [1,3,256,256]
+# 兼容 diffusers：decoder 有的版本返回 .sample，有的直接返回 Tensor
 class DecoderWrapper(torch.nn.Module):
     def __init__(self, dec):
         super().__init__()
         self.dec = dec
     def forward(self, z):
-        return self.dec(z).sample
+        out = self.dec(z)
+        return out.sample if hasattr(out, "sample") else out
 
 dec = DecoderWrapper(vae.decoder)
 dummy = torch.randn(1, 4, 32, 32)
