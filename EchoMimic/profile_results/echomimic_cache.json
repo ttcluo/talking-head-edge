@@ -1,0 +1,26 @@
+{
+  "method": "echomimic_window_cache",
+  "config": {
+    "num_steps": 30,
+    "context_frames": 12,
+    "num_windows": 10,
+    "threshold": 0.5
+  },
+  "baseline": {
+    "fps": 3.6,
+    "ms_per_window": 3309.4
+  },
+  "cached": {
+    "fps": 11.2,
+    "ms_per_window": 1068.0,
+    "skip_rate": 0.8,
+    "ssim": 0.8857,
+    "psnr": 23.47,
+    "speedup": 3.1
+  },
+  "motion_stats": {
+    "mean": 0.4494,
+    "median": 0.4271,
+    "std": 0.0868
+  }
+}

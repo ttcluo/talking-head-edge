@@ -1,0 +1,26 @@
+{
+  "config": {
+    "model": "EchoMimic V1",
+    "width": 512,
+    "height": 512,
+    "num_steps": 30,
+    "num_frames": 24,
+    "fp16": true,
+    "device": "cuda"
+  },
+  "timing_ms": {
+    "audio_encode": 0,
+    "reference_unet_once": 21.459174156188965,
+    "denoising_unet_per_step": 107.66824086507161,
+    "denoising_unet_total": 3230.0472259521484,
+    "vae_decode_per_frame": 37.862539291381836,
+    "total_pipeline": 4196.747938791911
+  },
+  "fps": 5.718713715960915,
+  "comparison": {
+    "musetalk_fp32_fps": 18.4,
+    "musetalk_fp16_fps": 21.5,
+    "echomimic_fps": 5.718713715960915,
+    "speedup_needed": 0.3107996584761367
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "config": {
+    "video": "data/video/yongen.mp4",
+    "num_frames": 50,
+    "batch_size": 1,
+    "fp16": true,
+    "device": "cuda"
+  },
+  "timing_ms": {
+    "audio_encode": 0,
+    "face_detect": 0.11868476867675781,
+    "face_parse": 0.03436565399169922,
+    "vae_encode": 6.232357025146484,
+    "unet_forward": 27.630372047424316,
+    "vae_decode": 10.339255332946777,
+    "blending": 1.7245960235595703,
+    "total_per_frame": 46.429171562194824
+  },
+  "fps": 21.538183136876274,
+  "bottleneck": "UNet 前向推理"
+}

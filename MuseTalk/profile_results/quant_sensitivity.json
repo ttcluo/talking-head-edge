@@ -1,0 +1,337 @@
+{
+  "model": "MuseTalk V1.5 UNet (FP16)",
+  "device": "cuda",
+  "baseline_fp16_ms": 24.669384956359863,
+  "full_int8_ms": 25.062239170074463,
+  "full_int8_rel_err": 0.006998022561079166,
+  "full_int4_ms": 24.91745948791504,
+  "full_int4_rel_err": 0.1261670124271922,
+  "mixed_precision": [
+    {
+      "top_k_fp16": 10,
+      "quant_pct": 96.45390070921985,
+      "ms": 24.892795085906982,
+      "rel_err": 0.0037603734433592742
+    },
+    {
+      "top_k_fp16": 20,
+      "quant_pct": 92.90780141843972,
+      "ms": 24.843895435333252,
+      "rel_err": 0.0028020455130204074
+    },
+    {
+      "top_k_fp16": 30,
+      "quant_pct": 89.36170212765957,
+      "ms": 24.94797706604004,
+      "rel_err": 0.002230695668716897
+    },
+    {
+      "top_k_fp16": 50,
+      "quant_pct": 82.26950354609929,
+      "ms": 24.90607500076294,
+      "rel_err": 0.0015134692684210008
+    }
+  ],
+  "top50_sensitive_layers": [
+    {
+      "name": "conv_out",
+      "type": "Conv2d",
+      "param_count": 11524,
+      "int8_rel_err": 0.0028182540192417836
+    },
+    {
+      "name": "up_blocks.3.resnets.2.conv1",
+      "type": "Conv2d",
+      "param_count": 1843520,
+      "int8_rel_err": 0.002564996109532781
+    },
+    {
+      "name": "up_blocks.3.resnets.1.conv1",
+      "type": "Conv2d",
+      "param_count": 1843520,
+      "int8_rel_err": 0.002301607883435418
+    },
+    {
+      "name": "up_blocks.3.resnets.2.conv2",
+      "type": "Conv2d",
+      "param_count": 921920,
+      "int8_rel_err": 0.0019531249996758298
+    },
+    {
+      "name": "up_blocks.3.resnets.2.conv_shortcut",
+      "type": "Conv2d",
+      "param_count": 205120,
+      "int8_rel_err": 0.0018052223804057722
+    },
+    {
+      "name": "conv_in",
+      "type": "Conv2d",
+      "param_count": 23360,
+      "int8_rel_err": 0.001526638679725869
+    },
+    {
+      "name": "up_blocks.3.attentions.2.transformer_blocks.0.ff.net.0.proj",
+      "type": "Linear",
+      "param_count": 821760,
+      "int8_rel_err": 0.001335175699985863
+    },
+    {
+      "name": "up_blocks.3.resnets.1.conv2",
+      "type": "Conv2d",
+      "param_count": 921920,
+      "int8_rel_err": 0.0012987065609877666
+    },
+    {
+      "name": "up_blocks.3.resnets.0.conv1",
+      "type": "Conv2d",
+      "param_count": 2765120,
+      "int8_rel_err": 0.0011042044863312523
+    },
+    {
+      "name": "up_blocks.3.attentions.1.transformer_blocks.0.ff.net.0.proj",
+      "type": "Linear",
+      "param_count": 821760,
+      "int8_rel_err": 0.0010413965247234197
+    },
+    {
+      "name": "up_blocks.3.resnets.0.conv_shortcut",
+      "type": "Conv2d",
+      "param_count": 307520,
+      "int8_rel_err": 0.0010018882908088152
+    },
+    {
+      "name": "up_blocks.2.upsamplers.0.conv",
+      "type": "Conv2d",
+      "param_count": 3687040,
+      "int8_rel_err": 0.0009471845823116706
+    },
+    {
+      "name": "up_blocks.3.resnets.1.conv_shortcut",
+      "type": "Conv2d",
+      "param_count": 205120,
+      "int8_rel_err": 0.0009436389715757446
+    },
+    {
+      "name": "up_blocks.3.attentions.2.proj_in",
+      "type": "Conv2d",
+      "param_count": 102720,
+      "int8_rel_err": 0.0009076763483970661
+    },
+    {
+      "name": "up_blocks.3.resnets.0.conv2",
+      "type": "Conv2d",
+      "param_count": 921920,
+      "int8_rel_err": 0.0008691811461212977
+    },
+    {
+      "name": "up_blocks.3.attentions.1.proj_in",
+      "type": "Conv2d",
+      "param_count": 102720,
+      "int8_rel_err": 0.0008671550828436257
+    },
+    {
+      "name": "up_blocks.2.resnets.2.conv1",
+      "type": "Conv2d",
+      "param_count": 5530240,
+      "int8_rel_err": 0.0008565182506358476
+    },
+    {
+      "name": "up_blocks.2.attentions.2.transformer_blocks.0.ff.net.0.proj",
+      "type": "Linear",
+      "param_count": 3281920,
+      "int8_rel_err": 0.0008266338172901852
+    },
+    {
+      "name": "up_blocks.2.resnets.2.conv2",
+      "type": "Conv2d",
+      "param_count": 3687040,
+      "int8_rel_err": 0.0008220751749154232
+    },
+    {
+      "name": "up_blocks.3.attentions.2.proj_out",
+      "type": "Conv2d",
+      "param_count": 102720,
+      "int8_rel_err": 0.0007856060359173268
+    },
+    {
+      "name": "up_blocks.1.resnets.2.conv1",
+      "type": "Conv2d",
+      "param_count": 22119680,
+      "int8_rel_err": 0.0007845930042784907
+    },
+    {
+      "name": "up_blocks.2.resnets.2.conv_shortcut",
+      "type": "Conv2d",
+      "param_count": 615040,
+      "int8_rel_err": 0.0007688910138765326
+    },
+    {
+      "name": "down_blocks.0.resnets.1.conv1",
+      "type": "Conv2d",
+      "param_count": 921920,
+      "int8_rel_err": 0.0007633193398629345
+    },
+    {
+      "name": "down_blocks.0.resnets.0.conv2",
+      "type": "Conv2d",
+      "param_count": 921920,
+      "int8_rel_err": 0.0007020309257133559
+    },
+    {
+      "name": "down_blocks.0.resnets.0.conv1",
+      "type": "Conv2d",
+      "param_count": 921920,
+      "int8_rel_err": 0.0006974722833385938
+    },
+    {
+      "name": "up_blocks.2.resnets.1.conv_shortcut",
+      "type": "Conv2d",
+      "param_count": 819840,
+      "int8_rel_err": 0.0006777181663812916
+    },
+    {
+      "name": "up_blocks.3.attentions.2.transformer_blocks.0.ff.net.2",
+      "type": "Linear",
+      "param_count": 409920,
+      "int8_rel_err": 0.0006741725556453656
+    },
+    {
+      "name": "up_blocks.2.resnets.1.conv1",
+      "type": "Conv2d",
+      "param_count": 7373440,
+      "int8_rel_err": 0.0006731595240065296
+    },
+    {
+      "name": "up_blocks.2.resnets.1.conv2",
+      "type": "Conv2d",
+      "param_count": 3687040,
+      "int8_rel_err": 0.0006711334607288575
+    },
+    {
+      "name": "up_blocks.3.attentions.0.proj_in",
+      "type": "Conv2d",
+      "param_count": 102720,
+      "int8_rel_err": 0.0006680943658123494
+    },
+    {
+      "name": "up_blocks.3.attentions.1.transformer_blocks.0.ff.net.2",
+      "type": "Linear",
+      "param_count": 409920,
+      "int8_rel_err": 0.0006670813341735134
+    },
+    {
+      "name": "up_blocks.3.attentions.0.transformer_blocks.0.ff.net.0.proj",
+      "type": "Linear",
+      "param_count": 821760,
+      "int8_rel_err": 0.0006620161759793334
+    },
+    {
+      "name": "up_blocks.2.attentions.2.proj_in",
+      "type": "Conv2d",
+      "param_count": 410240,
+      "int8_rel_err": 0.0006468207013967933
+    },
+    {
+      "name": "up_blocks.3.attentions.1.proj_out",
+      "type": "Conv2d",
+      "param_count": 102720,
+      "int8_rel_err": 0.0006422620590220312
+    },
+    {
+      "name": "down_blocks.0.downsamplers.0.conv",
+      "type": "Conv2d",
+      "param_count": 921920,
+      "int8_rel_err": 0.000618962331328803
+    },
+    {
+      "name": "up_blocks.3.attentions.0.proj_out",
+      "type": "Conv2d",
+      "param_count": 102720,
+      "int8_rel_err": 0.0006164297522317129
+    },
+    {
+      "name": "up_blocks.2.resnets.0.conv_shortcut",
+      "type": "Conv2d",
+      "param_count": 1229440,
+      "int8_rel_err": 0.0006118711098569508
+    },
+    {
+      "name": "up_blocks.3.attentions.1.transformer_blocks.0.attn1.to_out.0",
+      "type": "Linear",
+      "param_count": 102720,
+      "int8_rel_err": 0.0005946495719967386
+    },
+    {
+      "name": "up_blocks.3.attentions.0.transformer_blocks.0.ff.net.2",
+      "type": "Linear",
+      "param_count": 409920,
+      "int8_rel_err": 0.0005921169928996486
+    },
+    {
+      "name": "up_blocks.3.attentions.2.transformer_blocks.0.attn1.to_out.0",
+      "type": "Linear",
+      "param_count": 102720,
+      "int8_rel_err": 0.0005829997081501245
+    },
+    {
+      "name": "up_blocks.2.attentions.2.transformer_blocks.0.ff.net.2",
+      "type": "Linear",
+      "param_count": 1639040,
+      "int8_rel_err": 0.0005703368126646743
+    },
+    {
+      "name": "down_blocks.0.attentions.0.proj_in",
+      "type": "Conv2d",
+      "param_count": 102720,
+      "int8_rel_err": 0.0005642586228316583
+    },
+    {
+      "name": "down_blocks.0.attentions.0.proj_out",
+      "type": "Conv2d",
+      "param_count": 102720,
+      "int8_rel_err": 0.0005622325595539863
+    },
+    {
+      "name": "down_blocks.1.resnets.0.conv_shortcut",
+      "type": "Conv2d",
+      "param_count": 205440,
+      "int8_rel_err": 0.0005571674013598062
+    },
+    {
+      "name": "up_blocks.2.attentions.2.proj_out",
+      "type": "Conv2d",
+      "param_count": 410240,
+      "int8_rel_err": 0.0005566608855403883
+    },
+    {
+      "name": "up_blocks.1.upsamplers.0.conv",
+      "type": "Conv2d",
+      "param_count": 14746880,
+      "int8_rel_err": 0.0005485566324297001
+    },
+    {
+      "name": "down_blocks.1.resnets.0.conv1",
+      "type": "Conv2d",
+      "param_count": 1843840,
+      "int8_rel_err": 0.000541465410957848
+    },
+    {
+      "name": "down_blocks.2.resnets.0.conv1",
+      "type": "Conv2d",
+      "param_count": 7374080,
+      "int8_rel_err": 0.0005394393476801761
+    },
+    {
+      "name": "up_blocks.2.attentions.1.transformer_blocks.0.ff.net.0.proj",
+      "type": "Linear",
+      "param_count": 3281920,
+      "int8_rel_err": 0.000536400252763668
+    },
+    {
+      "name": "up_blocks.2.attentions.2.transformer_blocks.0.attn1.to_out.0",
+      "type": "Linear",
+      "param_count": 410240,
+      "int8_rel_err": 0.0005272829680141439
+    }
+  ]
+}

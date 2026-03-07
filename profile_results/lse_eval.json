@@ -1,0 +1,22 @@
+{
+  "threshold": 0.15,
+  "vshift": 5,
+  "num_frames_window": 12,
+  "baseline": {
+    "lse_c": 0.007687032222747803,
+    "lse_d": 0.6224290132522583,
+    "offset": 0,
+    "frames": 150
+  },
+  "cached": {
+    "lse_c": 0.007225096225738525,
+    "lse_d": 0.6230409145355225,
+    "offset": 0,
+    "frames": 150
+  },
+  "delta": {
+    "lse_c": -0.00046193599700927734,
+    "lse_d": 0.0006119012832641602
+  },
+  "sync_preserved": true
+}

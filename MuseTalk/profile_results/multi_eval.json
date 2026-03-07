@@ -1,0 +1,89 @@
+{
+  "threshold": 0.15,
+  "num_videos": 5,
+  "per_video": [
+    {
+      "video": "a.mp4",
+      "num_frames": 100,
+      "skip_rate": 0.51,
+      "fps_base": 22.2,
+      "fps_cached": 40.1,
+      "speedup": 1.8,
+      "ssim": 1.0,
+      "ssim_lip": 1.0,
+      "psnr": 56.48,
+      "motion_mean": 0.1736,
+      "motion_median": 0.1449
+    },
+    {
+      "video": "b.mp4",
+      "num_frames": 100,
+      "skip_rate": 0.55,
+      "fps_base": 22.4,
+      "fps_cached": 43.5,
+      "speedup": 1.94,
+      "ssim": 1.0,
+      "ssim_lip": 1.0,
+      "psnr": 55.99,
+      "motion_mean": 0.1601,
+      "motion_median": 0.1295
+    },
+    {
+      "video": "c.mp4",
+      "num_frames": 100,
+      "skip_rate": 0.59,
+      "fps_base": 22.5,
+      "fps_cached": 46.8,
+      "speedup": 2.08,
+      "ssim": 1.0,
+      "ssim_lip": 1.0,
+      "psnr": 54.7,
+      "motion_mean": 0.1389,
+      "motion_median": 0.1209
+    },
+    {
+      "video": "sun.mp4",
+      "num_frames": 100,
+      "skip_rate": 0.95,
+      "fps_base": 22.7,
+      "fps_cached": 138.3,
+      "speedup": 6.1,
+      "ssim": 1.0,
+      "ssim_lip": 0.9999,
+      "psnr": 45.42,
+      "motion_mean": 0.0982,
+      "motion_median": 0.1018
+    },
+    {
+      "video": "yongen.mp4",
+      "num_frames": 100,
+      "skip_rate": 0.53,
+      "fps_base": 22.6,
+      "fps_cached": 42.3,
+      "speedup": 1.87,
+      "ssim": 1.0,
+      "ssim_lip": 1.0,
+      "psnr": 57.01,
+      "motion_mean": 0.1314,
+      "motion_median": 0.1444
+    }
+  ],
+  "mean": {
+    "skip_rate": 0.626,
+    "ssim": 1.0,
+    "ssim_lip": 1.0,
+    "psnr": 53.92,
+    "fps_base": 22.48,
+    "fps_cached": 62.2,
+    "speedup": 2.758
+  },
+  "std": {
+    "skip_rate": 0.1641,
+    "ssim": 0.0,
+    "ssim_lip": 0.0,
+    "psnr": 4.3184,
+    "fps_base": 0.172,
+    "fps_cached": 38.1116,
+    "speedup": 1.6736
+  }
+}

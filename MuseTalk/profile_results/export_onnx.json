@@ -1,0 +1,48 @@
+{
+  "config": {
+    "warmup": 10,
+    "bench_runs": 100,
+    "opset": 17
+  },
+  "pytorch_fp16": {
+    "unet_ms": 25.0,
+    "vae_enc_ms": 5.19,
+    "vae_dec_ms": 9.54,
+    "total_ms": 39.73,
+    "fps": 25.2
+  },
+  "onnx_runtime": {
+    "unet_ms": 16.3,
+    "vae_enc_ms": 7.73,
+    "vae_dec_ms": 14.42,
+    "total_ms": 38.44,
+    "fps": 26.0,
+    "speedup_vs_pt": 1.03
+  },
+  "tensorrt": {
+    "unet_ms": null,
+    "vae_enc_ms": null,
+    "vae_dec_ms": null,
+    "total_ms": null,
+    "fps": null,
+    "speedup_vs_pt": null
+  },
+  "mats_context": {
+    "baseline_fps": 22.3,
+    "mats_fps": 45.714999999999996,
+    "mats_speedup": 2.05,
+    "mats_skip_rate": 0.58
+  },
+  "hybrid_deployment": {
+    "description": "MATS 像素缓存 + ORT/TRT UNet + PT FP16 VAE（实际部署最优策略）",
+    "mats_ort_unet_fps": 62.3,
+    "mats_ort_unet_speedup": 2.8,
+    "mats_trt_unet_fps": null,
+    "mats_trt_unet_speedup": null
+  },
+  "onnx_files": {
+    "unet": "models/onnx/unet.onnx",
+    "vae_enc": "models/onnx/vae_enc.onnx",
+    "vae_dec": "models/onnx/vae_dec.onnx"
+  }
+}
