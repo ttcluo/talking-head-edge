@@ -12,6 +12,7 @@
 """
 
 import argparse
+import glob
 import json
 import os
 import pickle
@@ -31,7 +32,6 @@ if MUSE_ROOT not in sys.path:
 
 from musetalk.models.unet import PositionalEncoding
 from musetalk.utils.utils import load_all_model
-from musetalk.utils.preprocessing import read_imgs
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--student_ckpt",   type=str, required=True)
@@ -58,8 +58,10 @@ coord_path  = os.path.join(avatar_dir, "coords.pkl")
 input_dir   = os.path.join(avatar_dir, "full_imgs")
 latent_path = os.path.join(avatar_dir, "latents.pt")
 
-coords_list    = pickle.load(open(coord_path, "rb"))
-input_img_list = read_imgs(input_dir)
+coords_list = pickle.load(open(coord_path, "rb"))
+img_paths   = sorted(glob.glob(os.path.join(input_dir, "*.png")) +
+                     glob.glob(os.path.join(input_dir, "*.jpg")))
+input_img_list = [cv2.imread(p) for p in img_paths]
 latent_list    = torch.load(latent_path, map_location=device)
 print(f"  ✓ 预处理帧数: {len(input_img_list)}  latents: {len(latent_list)}")
 
@@ -77,9 +79,9 @@ print(f"  ✓ 音频特征: {len(audio_chunks)} 帧，使用前 {num_frames} 帧
 # ==================== 加载模型 ====================
 print("\n[加载模型]")
 vae, teacher_wrapper, pe_module = load_all_model(device=device)
-teacher_unet = teacher_wrapper.model.to(device).half()
+teacher_unet = teacher_wrapper.model.to(device).float()
 teacher_unet.eval()
-vae.vae = vae.vae.to(device).half()
+vae.vae = vae.vae.to(device).float()
 pe = pe_module.to(device)
 
 with open(args.student_config) as f:
@@ -88,7 +90,7 @@ student_unet = UNet2DConditionModel(**student_cfg)
 student_unet.set_attn_processor(AttnProcessor())
 ckpt = torch.load(args.student_ckpt, map_location="cpu")
 student_unet.load_state_dict(ckpt, strict=False)
-student_unet = student_unet.to(device).half()
+student_unet = student_unet.to(device).float()
 student_unet.eval()
 
 teacher_params = sum(p.numel() for p in teacher_unet.parameters())
@@ -148,9 +150,9 @@ def run_inference(unet, label):
     frames = []
     t_start = time.time()
     for i in tqdm(range(num_frames), desc=label):
-        af  = audio_chunks[i].unsqueeze(0).to(device).half()  # [1, 50, 384]
+        af  = audio_chunks[i].unsqueeze(0).to(device).float()  # [1, 50, 384]
         af  = pe(af)
-        lat = latent_list[i % len(latent_list)].to(device).half()
+        lat = latent_list[i % len(latent_list)].to(device).float()
         if lat.dim() == 3:
             lat = lat.unsqueeze(0)
         t = torch.tensor([0], dtype=torch.long, device=device)
