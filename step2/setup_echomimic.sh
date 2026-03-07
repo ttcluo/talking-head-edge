@@ -79,7 +79,7 @@ print(f"  已存在 {len(already)} 个，下载 {len(missing)} 个: {missing}")
 
 snapshot_download(
     model_id="BadToBest/EchoMimic",
-    cache_dir=save_dir,
+    local_dir=save_dir,
     ignore_file_pattern=["*.md", "*.txt", "sd-vae*", "whisper*"],
 )
 print("  ✓ ModelScope 下载完成")
