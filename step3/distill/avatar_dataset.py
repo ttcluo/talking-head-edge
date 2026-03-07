@@ -27,9 +27,7 @@ class AvatarDistillDataset(Dataset):
         self.samples = []
 
         for avatar_id in avatar_ids:
-            latent_path = os.path.join(
-                avatar_base, avatar_id, "latents", "unet_input_latent_list.pt"
-            )
+            latent_path = os.path.join(avatar_base, avatar_id, "latents.pt")
             audio_path = os.path.join(audio_feat_dir, f"{avatar_id}.pt")
 
             if not os.path.exists(latent_path):
