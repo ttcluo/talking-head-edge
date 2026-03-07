@@ -2,15 +2,18 @@
 # 在 $MUSE_ROOT 下一键生成 Android 所需模型与资源，并写入 TalkingHeadDemo/app/src/main/assets/。
 # 依赖：已训练 student_unet_final.pth、avatar latents、distill audio_feats、models/sd-vae。
 #
-# 用法：
-#   export MUSE_ROOT=/path/to/musetalk
-#   export REPO=/path/to/tad   # 可选，不设则用本脚本所在仓库根推导
+# 用法（在 MuseTalk 项目根目录下执行）：
+#   cd /path/to/musetalk
+#   export MUSE_ROOT=$(pwd)    # 或 export MUSE_ROOT=/你的/MuseTalk/实际路径
 #   bash $REPO/step3/android/build_android_assets.sh
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="${REPO:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
-MUSE_ROOT="${MUSE_ROOT:-$(pwd)}"
+# 若 MUSE_ROOT 未设置或为占位符，使用当前目录（需在 MuseTalk 根目录下运行）
+if [[ -z "$MUSE_ROOT" || "$MUSE_ROOT" == "/path/to/musetalk" ]]; then
+    MUSE_ROOT="$(pwd)"
+fi
 ASSETS_DIR="$REPO/android/TalkingHeadDemo/app/src/main/assets"
 STUDENT_CKPT="${STUDENT_CKPT:-$MUSE_ROOT/exp_out/distill/distill_v1/student_unet_final.pth}"
 STUDENT_CONFIG="${STUDENT_CONFIG:-$REPO/step3/distill/configs/student_musetalk.json}"

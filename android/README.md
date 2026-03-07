@@ -32,12 +32,16 @@ android/TalkingHeadDemo/
 | `latent_test.bin` + `audio_test.bin` + `meta.json` | 单帧基准测试输入 | `prepare_android_assets.py` | `app/src/main/assets/` |
 | `latents_seq.bin` + `audio_seq.bin` + `video_meta.json` | 视频预览多帧序列 | `prepare_android_video_assets.py` | `app/src/main/assets/` |
 
-**一键生成（在 GPU 服务器、`$MUSE_ROOT` 下执行）：**
+**一键生成（在 GPU 服务器执行）：**
 
 ```bash
-# 需已配置 MUSE_ROOT、REPO；已训练好 student_unet_final.pth 及 avatar/audio 数据
+# 进入 MuseTalk 项目根目录
+cd /path/to/musetalk   # 替换为你的 MuseTalk 实际路径
+export MUSE_ROOT=$(pwd)
+# 可选：export REPO=/path/to/tad  若不设则从脚本位置推导
 bash $REPO/step3/android/build_android_assets.sh
 ```
+需已训练好 `student_unet_final.pth` 及 avatar/audio 数据。
 
 脚本会：导出 UNet FP32/INT8 与 VAE Decoder ONNX → 生成单帧/多帧测试资源 → 写入 `$REPO/android/TalkingHeadDemo/app/src/main/assets/`，并将 ONNX 复制到同一目录。若未运行脚本，可按下面 Step 1～Step 3 分步执行。
 
