@@ -1,0 +1,10 @@
+{
+  "teacher_params_M": 849.9,
+  "student_params_M": 138.4,
+  "compression_ratio": 6.14,
+  "teacher_fps": 11.9,
+  "student_fps": 16.1,
+  "speedup": 1.35,
+  "ssim": 1.0,
+  "psnr_db": 100.0
+}

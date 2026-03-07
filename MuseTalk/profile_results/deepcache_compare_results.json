@@ -1,0 +1,42 @@
+{
+  "Baseline": {
+    "fps": 30.647608119887618,
+    "speedup": 1.0,
+    "ssim": 1.0,
+    "psnr": "inf",
+    "skip_rate": 0.0,
+    "note": "batch_size=4"
+  },
+  "MATS": {
+    "fps": 44.92936216123919,
+    "speedup": 1.4659989773258673,
+    "ssim": 0.9997980790266371,
+    "psnr": 67.99473558407128,
+    "skip_rate": 0.55,
+    "note": "thr=0.15, max_skip=2"
+  },
+  "DC-2": {
+    "fps": 27.283002747128997,
+    "speedup": 0.8902163797058184,
+    "ssim": 0.9998521503390735,
+    "psnr": 70.40018208860184,
+    "skip_rate": 0.5,
+    "note": "feature-level cache"
+  },
+  "DC-4": {
+    "fps": 29.53174731978684,
+    "speedup": 0.963590607275591,
+    "ssim": 0.9996271107798609,
+    "psnr": 61.06696565153919,
+    "skip_rate": 0.75,
+    "note": "feature-level cache"
+  },
+  "DC-Adp": {
+    "fps": 29.359125679449303,
+    "speedup": 0.9579581403090898,
+    "ssim": 0.9995751786865603,
+    "psnr": 60.73658729542818,
+    "skip_rate": 0.735,
+    "note": "feature-level cache"
+  }
+}

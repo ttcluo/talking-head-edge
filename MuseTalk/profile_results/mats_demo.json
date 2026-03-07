@@ -1,0 +1,9 @@
+{
+  "baseline_fps": 26.2,
+  "mats_fps": 4848.3,
+  "speedup": 185.35,
+  "skip_rate": 0.995,
+  "threshold": 0.15,
+  "num_frames": 200,
+  "output": "profile_results/mats_demo.mp4"
+}
