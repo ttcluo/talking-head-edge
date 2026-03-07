@@ -2,8 +2,11 @@
 为 Android 端侧部署导出 INT8 量化 ONNX 模型。
 
 产出：
-  models/android_onnx/unet_int8.onnx        (~180 MB)
-  models/android_onnx/vae_decoder_int8.onnx (~80 MB)
+  models/android_onnx/unet_int8.onnx        (~200 MB)
+  models/android_onnx/vae_decoder_int8.onnx (~50 MB)
+
+依赖：
+  pip install onnx onnxruntime
 
 使用方式：
   cd $MUSE_ROOT
@@ -16,6 +19,7 @@ import os
 import sys
 import numpy as np
 import torch
+import onnx
 
 MUSETALK_ROOT = os.environ.get("MUSE_ROOT", os.path.expanduser("~/MuseTalk"))
 if MUSETALK_ROOT not in sys.path:
@@ -94,25 +98,25 @@ with torch.no_grad():
 # ==================== 2. INT8 动态量化 ====================
 print(f"\n[2/3] INT8 动态量化（onnxruntime quantization）")
 try:
-    from onnxruntime.quantization import quantize_dynamic, QuantType, shape_inference
+    from onnxruntime.quantization import quantize_dynamic, QuantType
 
-    # 预处理：shape inference + 展开外部数据为内联 ONNX，让 quantize_dynamic 能正确压缩权重
-    unet_prep_path = os.path.join(args.out_dir, "unet_fp32_prep.onnx")
-    shape_inference.quant_pre_process(unet_fp32_path, unet_prep_path, skip_symbolic_shape=True)
-    prep_size = (os.path.getsize(unet_prep_path) +
-                 (os.path.getsize(unet_prep_path + ".data")
-                  if os.path.exists(unet_prep_path + ".data") else 0)) / 1e6
-    print(f"  ✓ 预处理完成：{prep_size:.1f} MB")
+    # 将外部数据文件嵌入为单一自包含 ONNX（解决 quant_pre_process 找不到外部文件的问题）
+    unet_inline_path = os.path.join(args.out_dir, "unet_fp32_inline.onnx")
+    print("  合并外部权重文件为自包含 ONNX（可能需要数分钟）...")
+    inline_model = onnx.load(unet_fp32_path, load_external_data=True)
+    onnx.save(inline_model, unet_inline_path)
+    inline_size = os.path.getsize(unet_inline_path) / 1e6
+    print(f"  ✓ 自包含 FP32: {inline_size:.1f} MB")
 
     unet_int8_path = os.path.join(args.out_dir, "unet_int8.onnx")
     quantize_dynamic(
-        unet_prep_path,
+        unet_inline_path,
         unet_int8_path,
         weight_type=QuantType.QInt8,
         extra_options={"EnableSubgraph": True},
     )
     size_int8 = os.path.getsize(unet_int8_path) / 1e6
-    print(f"  ✓ UNet INT8: {size_int8:.1f} MB（压缩率 {prep_size/size_int8:.1f}×）")
+    print(f"  ✓ UNet INT8: {size_int8:.1f} MB（压缩率 {inline_size/size_int8:.1f}×）")
 except ImportError:
     print("  ✗ onnxruntime 未安装，跳过 INT8 量化")
     print("  请先安装：pip install onnxruntime")
