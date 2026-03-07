@@ -39,7 +39,7 @@ for VID in "$VIDEO_DIR"/*.mp4; do
     AVATAR_ID="avator_${VNAME}"
     AVATAR_DIR="$AVATAR_BASE/$AVATAR_ID"
 
-    if [ -d "$AVATAR_DIR/latents" ]; then
+    if [ -d "$AVATAR_DIR" ]; then
         echo "  ✓ $AVATAR_ID 已存在，跳过"
         continue
     fi
