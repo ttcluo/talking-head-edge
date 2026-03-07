@@ -45,7 +45,11 @@ vae, unet, pe = load_all_model(
     device=device,
 )
 unet.model = unet.model.float().cpu()
-print("  ✓ 模型加载完成（CPU FP32 用于量化）")
+
+# 切换为 eager attention（标准 matmul），避免 Flash SDP 算子无法导出到 ONNX
+from diffusers.models.attention_processor import AttnProcessor
+unet.model.set_attn_processor(AttnProcessor())
+print("  ✓ 模型加载完成（CPU FP32，eager attention）")
 
 # ==================== 1. 导出 UNet FP32 ONNX ====================
 unet_fp32_path = os.path.join(args.out_dir, "unet_fp32.onnx")
