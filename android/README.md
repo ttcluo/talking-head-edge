@@ -22,6 +22,27 @@ android/TalkingHeadDemo/
 
 ---
 
+## Android 所需模型与资源清单
+
+| 文件 | 用途 | 生成方式 | 放置位置 |
+|------|------|----------|----------|
+| `unet_student_fp32.onnx` | UNet 推理（CPU/视频预览，约 555MB） | 见下「一键生成」或 `export_student_onnx.py` | `assets/` 或 `/sdcard/Download/` |
+| `unet_student_int8.onnx` | UNet 推理（NNAPI 可选，约 142MB） | 同上 | 同上 |
+| `vae_decoder.onnx` | 将 latent 解码为 256×256 图像（约 198MB） | `export_vae_decoder_onnx.py` | `assets/` 或 `/sdcard/Download/` |
+| `latent_test.bin` + `audio_test.bin` + `meta.json` | 单帧基准测试输入 | `prepare_android_assets.py` | `app/src/main/assets/` |
+| `latents_seq.bin` + `audio_seq.bin` + `video_meta.json` | 视频预览多帧序列 | `prepare_android_video_assets.py` | `app/src/main/assets/` |
+
+**一键生成（在 GPU 服务器、`$MUSE_ROOT` 下执行）：**
+
+```bash
+# 需已配置 MUSE_ROOT、REPO；已训练好 student_unet_final.pth 及 avatar/audio 数据
+bash $REPO/step3/android/build_android_assets.sh
+```
+
+脚本会：导出 UNet FP32/INT8 与 VAE Decoder ONNX → 生成单帧/多帧测试资源 → 写入 `$REPO/android/TalkingHeadDemo/app/src/main/assets/`，并将 ONNX 复制到同一目录。若未运行脚本，可按下面 Step 1～Step 3 分步执行。
+
+---
+
 ## Step 1：服务器端 — 生成测试资产
 
 ```bash
