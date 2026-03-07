@@ -315,24 +315,34 @@ for i in range(total_frames):
     row = np.concatenate([row, stat], axis=0)
     comparison_frames.append(row)
 
-tmp = args.out.replace(".mp4", "_tmp.mp4")
-h_o, w_o = comparison_frames[0].shape[:2]
-wr = cv2.VideoWriter(tmp, cv2.VideoWriter_fourcc(*"mp4v"), args.fps, (w_o, h_o))
-for fr in comparison_frames:
-    wr.write(fr)
-wr.release()
+def write_video_with_audio(frames, audio_path, out_path, fps):
+    tmp = out_path.replace(".mp4", "_tmp.mp4")
+    h_o, w_o = frames[0].shape[:2]
+    wr = cv2.VideoWriter(tmp, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w_o, h_o))
+    for fr in frames:
+        wr.write(fr)
+    wr.release()
+    cmd = (f"ffmpeg -loglevel error -nostdin -y "
+           f"-i {tmp} -i {audio_path} "
+           f"-c:v libx264 -crf 20 -preset fast "
+           f"-c:a aac -b:a 128k -shortest {out_path}")
+    ret = subprocess.call(cmd, shell=True)
+    if ret == 0:
+        os.remove(tmp)
+    else:
+        os.rename(tmp, out_path)
 
-cmd = (f"ffmpeg -loglevel error -nostdin -y "
-       f"-i {tmp} -i {args.audio} "
-       f"-c:v libx264 -crf 20 -preset fast "
-       f"-c:a aac -b:a 128k -shortest {args.out}")
-ret = subprocess.call(cmd, shell=True)
-if ret == 0:
-    os.remove(tmp)
-else:
-    os.rename(tmp, args.out)
-
+write_video_with_audio(comparison_frames, args.audio, args.out, args.fps)
 print(f"\n  ✓ 对比视频: {args.out}")
+
+base_dir = os.path.dirname(args.out)
+baseline_path = os.path.join(base_dir, "baseline.mp4")
+mats_path     = os.path.join(base_dir, "mats.mp4")
+h1, w1 = baseline_out[0].shape[:2]
+write_video_with_audio(baseline_out, args.audio, baseline_path, args.fps)
+print(f"  ✓ 单独基线: {baseline_path}")
+write_video_with_audio(mats_out, args.audio, mats_path, args.fps)
+print(f"  ✓ 单独MATS: {mats_path}")
 print(f"""
 ======================================================================
   Demo 汇总
