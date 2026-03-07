@@ -47,7 +47,9 @@ parser.add_argument("--avatar_id",  type=str,   default="yongen",
                     help="MuseTalk 预处理过的角色 ID（对应 results/v15/avatars/<id>/）")
 parser.add_argument("--audio",      type=str,   default="data/audio/yongen.wav")
 parser.add_argument("--threshold",  type=float, default=0.15,
-                    help="MATS 跳帧阈值（越低跳帧越少）")
+                    help="MATS 视觉跳帧阈值（越低跳帧越少）")
+parser.add_argument("--audio_threshold", type=float, default=0.10,
+                    help="MATS 音频门控阈值：audio motion 超过此值则强制计算（0=禁用）")
 parser.add_argument("--num_frames", type=int,   default=200,
                     help="生成帧数（0=全部）")
 parser.add_argument("--fps",        type=int,   default=25)
@@ -214,12 +216,13 @@ prev_lat     = None
 cached_pixel = None
 skip_count = 0
 unet_count = 0
+prev_audio_feat = None
 
 with torch.no_grad():
     for i in range(total_frames):
         lat = input_latent_list_cycle[i % cycle_len].to(device=device, dtype=weight_dtype)
 
-        # 运动检测
+        # 视觉运动检测
         if prev_lat is not None:
             motion = float((lat.float() - prev_lat.float()).norm() /
                            (prev_lat.float().norm() + 1e-6))
@@ -233,9 +236,17 @@ with torch.no_grad():
             w = torch.from_numpy(np.array([wc])).to(device)
         audio_feat = pe(w)
 
+        # 音频运动检测：音频变化大时强制计算
+        if args.audio_threshold > 0 and prev_audio_feat is not None:
+            audio_motion = float((audio_feat.float() - prev_audio_feat.float()).norm() /
+                                 (prev_audio_feat.float().norm() + 1e-6))
+        else:
+            audio_motion = 0.0
+
         sync(); t0 = time.time()
 
-        if motion >= args.threshold or cached_pixel is None:
+        audio_gate = (args.audio_threshold > 0 and audio_motion >= args.audio_threshold)
+        if motion >= args.threshold or cached_pixel is None or audio_gate:
             pred = unet.model(lat, timesteps,
                               encoder_hidden_states=audio_feat).sample
             pred = pred.to(dtype=vae.vae.dtype)
@@ -248,6 +259,8 @@ with torch.no_grad():
             face  = cached_pixel
             skipped = True
             skip_count += 1
+
+        prev_audio_feat = audio_feat.detach()
 
         sync(); elapsed = time.time() - t0
 
@@ -266,21 +279,24 @@ skip_rate = skip_count / total_frames
 print(f"  MATS 完成：{fps_mats:.1f} FPS  跳过率={skip_rate:.1%}")
 
 # ==================== SSIM / PSNR ====================
-def _ssim_psnr(img1, img2):
-    """全局近似 SSIM + PSNR（无需 skimage）"""
-    f1 = img1.astype(np.float64)
-    f2 = img2.astype(np.float64)
-    mse = np.mean((f1 - f2) ** 2)
+def _ssim_psnr(img1, img2, win_size=11, sigma=1.5):
+    """标准 Gaussian 窗口 SSIM + PSNR（与 skimage 实现一致）"""
+    mse = np.mean((img1.astype(np.float64) - img2.astype(np.float64)) ** 2)
     psnr = 10 * np.log10(255 ** 2 / mse) if mse > 1e-10 else 100.0
     g1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY).astype(np.float64)
     g2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY).astype(np.float64)
+    kernel = cv2.getGaussianKernel(win_size, sigma)
+    kernel2d = (kernel @ kernel.T).astype(np.float64)
     C1, C2 = (0.01 * 255) ** 2, (0.03 * 255) ** 2
-    mu1, mu2 = g1.mean(), g2.mean()
-    s1 = np.mean((g1 - mu1) ** 2)
-    s2 = np.mean((g2 - mu2) ** 2)
-    s12 = np.mean((g1 - mu1) * (g2 - mu2))
-    ssim = ((2*mu1*mu2 + C1) * (2*s12 + C2)) / ((mu1**2 + mu2**2 + C1) * (s1 + s2 + C2))
-    return float(ssim), float(psnr)
+    mu1 = cv2.filter2D(g1, -1, kernel2d)
+    mu2 = cv2.filter2D(g2, -1, kernel2d)
+    mu1_sq, mu2_sq, mu12 = mu1 ** 2, mu2 ** 2, mu1 * mu2
+    sig1 = cv2.filter2D(g1 * g1, -1, kernel2d) - mu1_sq
+    sig2 = cv2.filter2D(g2 * g2, -1, kernel2d) - mu2_sq
+    sig12 = cv2.filter2D(g1 * g2, -1, kernel2d) - mu12
+    ssim_map = ((2 * mu12 + C1) * (2 * sig12 + C2)) / \
+               ((mu1_sq + mu2_sq + C1) * (sig1 + sig2 + C2))
+    return float(ssim_map.mean()), float(psnr)
 
 print(f"\n[质量评估：SSIM / PSNR（真实音频）]")
 ssim_vals, psnr_vals = [], []
