@@ -27,8 +27,35 @@
 |------|------|
 | **本机/代理下载后上传** | 在能访问 Hugging Face 的机器（本机或代理）用 `huggingface-cli download` 或网页下载 HDTF，再通过 scp/rsync 传到服务器。 |
 | **VoxCeleb2** | 说话人视频数据集，国内有研究者将分卷上传至**百度网盘**（可搜「VoxCeleb2 国内下载」）。下载后按说明合并解压，得到大量 MP4，取其中若干作为 `--video_dir` 即可。需自行遵守数据集使用条款。 |
-| **OpenDataLab / ModelScope** | [OpenDataLab](https://openxlab.org.cn)、[ModelScope 魔搭](https://www.modelscope.cn) 上可搜索「talking head」「人脸视频」「说话人」等，部分数据集提供国内可下的链接。下载后整理成同一目录的 MP4 供 `prepare_distill_data.py` 使用。 |
+| **OpenDataLab / ModelScope** | 见下 **1.2.1 ModelScope 推荐**。 |
 | **自备视频** | 见下 1.3，任意单人正面说话、带音轨的 MP4 即可，无需固定数据集。 |
+
+### 1.2.1 ModelScope 推荐：数据堂 1998 人唇语视频数据
+
+**数据集**：数据堂—1,998 人唇语视频数据（人脸 + 口型 + 说话视频，适合对话头/口型同步）。
+
+- **页面**：<https://www.modelscope.cn/datasets/DatatangBeijing/1998People-LipLanguageVideoData>
+- **下载**（在服务器上执行）：
+
+```bash
+# 安装 ModelScope（若未安装）
+pip install modelscope
+
+# 进入一个工作目录，用 Python 拉取数据集到本地
+python -c "
+from modelscope.msdatasets import MsDataset
+# 下载到当前目录下的 1998People-LipLanguageVideoData
+ds = MsDataset.load('DatatangBeijing/1998People-LipLanguageVideoData', split='train')
+# 查看第一条，确认数据结构和路径
+print(next(iter(ds)))
+# 若需把视频集中到同一目录供 prepare_distill_data.py 使用，可遍历 ds 复制/链接到目标目录
+"
+```
+
+- 下载完成后，数据集会缓存在 ModelScope 默认目录（如 `~/.cache/modelscope/hub/datasets/...`），或在 `MsDataset.load(..., cache_dir='./my_data')` 指定目录。将得到的 **视频文件集中到同一目录**（例如 `$MUSE_ROOT/dataset/distill_videos/`），再将该目录作为 `--video_dir` 传给 `prepare_distill_data.py`。
+- **使用条款**：数据堂数据集通常需遵守非商业/科研用途等条款，使用前请在页面上确认许可说明。
+
+若该数据集需申请或仅部分公开，可在 ModelScope 搜索「唇语」「人脸视频」「说话人」等关键词，选用带国内可下链接的其它数据集，按同样方式下载并整理成同一目录的 MP4 即可。
 
 ### 1.3 自备视频
 
