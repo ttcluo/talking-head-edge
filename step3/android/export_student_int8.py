@@ -162,13 +162,44 @@ try:
 
 except Exception as e:
     import traceback
-    print(f"\n⚠ 静态量化 trace 失败（Conv2d JIT 量化 PyTorch 2.0 已知限制），回退到 FP16 导出...")
+    print(f"\n⚠ 静态量化 trace 失败，回退到 FP16 导出（先移除 LoRA 兼容层）...")
     traceback.print_exc()
 
-    # 回退：FP16（减半大小，JIT 完全兼容）
+    def replace_lora_with_linear(module):
+        """将 LoRACompatibleLinear/Conv 替换为标准 nn.Linear/Conv2d（支持 FP16 CPU）。"""
+        try:
+            from diffusers.models.lora import LoRACompatibleLinear, LoRACompatibleConv
+        except ImportError:
+            return
+        for name, child in list(module.named_children()):
+            if isinstance(child, LoRACompatibleLinear):
+                new_l = nn.Linear(
+                    child.in_features, child.out_features,
+                    bias=child.bias is not None,
+                )
+                new_l.weight = child.weight
+                if child.bias is not None:
+                    new_l.bias = child.bias
+                setattr(module, name, new_l)
+            elif isinstance(child, LoRACompatibleConv):
+                new_c = nn.Conv2d(
+                    child.in_channels, child.out_channels,
+                    kernel_size=child.kernel_size,
+                    stride=child.stride,
+                    padding=child.padding,
+                    bias=child.bias is not None,
+                )
+                new_c.weight = child.weight
+                if child.bias is not None:
+                    new_c.bias = child.bias
+                setattr(module, name, new_c)
+            else:
+                replace_lora_with_linear(child)
+
     model_fp16 = UNet2DConditionModel(**student_cfg)
     model_fp16.load_state_dict(ckpt, strict=False)
     model_fp16.set_attn_processor(AttnProcessor())
+    replace_lora_with_linear(model_fp16)     # 移除 LoRA 包装层
     model_fp16 = model_fp16.half().cpu().eval()
     wrapper_fp16 = _UNetWrapper(model_fp16)
 
@@ -186,4 +217,4 @@ except Exception as e:
     opt_fp16._save_for_lite_interpreter(out_fp16)
     sz_fp16 = os.path.getsize(out_fp16) / 1e6
     print(f"  ✓ Student FP16: {out_fp16}  ({sz_fp16:.1f} MB)")
-    print(f"  理论 FP32={n_params*4/1e6:.0f}MB → FP16={sz_fp16:.1f}MB  压缩比={n_params*4/1e6/sz_fp16:.1f}×")
+    print(f"  FP32={n_params*4/1e6:.0f}MB → FP16={sz_fp16:.1f}MB  压缩比={n_params*4/1e6/sz_fp16:.1f}×")
