@@ -46,10 +46,36 @@
         android:textSize="13sp"
         android:paddingTop="4dp"/>
 
-    <Button
-        android:id="@+id/btnGenerate"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="生成预览"
-        android:layout_marginTop="8dp"/>
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <Button
+            android:id="@+id/btnGenerate"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="生成预览"
+            android:layout_marginEnd="4dp"/>
+
+        <Button
+            android:id="@+id/btnLoopPlay"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="循环播放"
+            android:visibility="gone"
+            android:layout_marginEnd="4dp"/>
+
+        <Button
+            android:id="@+id/btnSaveVideo"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="保存 MP4"
+            android:visibility="gone"
+            android:layout_marginStart="4dp"/>
+    </LinearLayout>
 </LinearLayout>
