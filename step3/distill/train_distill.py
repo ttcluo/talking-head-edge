@@ -199,9 +199,9 @@ def main(args):
         student_unet, projector, teacher_unet, vae.vae,
         optimizer, train_dl, lr_scheduler,
     )
+    # 冻结模型转 FP16 节省显存，可训练参数必须保持 FP32（AMP 要求）
     teacher_unet.to(weight_dtype)
     vae.vae.to(weight_dtype)
-    student_unet.to(weight_dtype)
     pe = pe.to(accelerator.device)
 
     lp = cfg.loss_params
@@ -222,8 +222,8 @@ def main(args):
         for batch in train_dl:
             with accelerator.accumulate(student_unet):
 
-                latent   = batch["latent"].to(weight_dtype)     # [B, 8, 32, 32]
-                audio_f  = batch["audio_feat"].to(weight_dtype) # [B, 50, 384]
+                latent   = batch["latent"].to(accelerator.device)      # [B, 8, 32, 32] FP32
+                audio_f  = batch["audio_feat"].to(accelerator.device)  # [B, 50, 384]   FP32
                 timestep = torch.zeros(
                     latent.shape[0], dtype=torch.long, device=latent.device
                 )
@@ -231,17 +231,17 @@ def main(args):
                 # 音频位置编码（与推理一致）
                 audio_f = pe(audio_f)  # [B, 50, 384]
 
-                # ---------- Teacher ----------
+                # ---------- Teacher（FP16）----------
                 teacher_hook.clear()
                 with torch.no_grad():
                     teacher_out = teacher_unet(
-                        latent, timestep,
-                        encoder_hidden_states=audio_f,
+                        latent.to(weight_dtype), timestep,
+                        encoder_hidden_states=audio_f.to(weight_dtype),
                         return_dict=False,
-                    )[0]
-                t_feats = [teacher_hook.get(l) for l in LAYERS]
+                    )[0].float()
+                t_feats = [f.float() if f is not None else None for f in [teacher_hook.get(l) for l in LAYERS]]
 
-                # ---------- Student ----------
+                # ---------- Student（FP32，AMP autocast 由 accelerator 处理）----------
                 student_hook.clear()
                 student_out = student_unet(
                     latent, timestep,
