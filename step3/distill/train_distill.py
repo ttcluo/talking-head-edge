@@ -1,30 +1,30 @@
 """
-MuseTalk UNet 知识蒸馏训练脚本。
+MuseTalk UNet 知识蒸馏训练脚本（轻量版）。
 
-Teacher: musetalkV15/unet.pth  (~850MB FP32, block_out_channels=[320,640,1280,1280])
-Student: student_musetalk.json (~136MB FP32, block_out_channels=[128,256,512,512])
+不依赖 mmpose/decord/HDTF，直接使用 realtime_inference.py 预处理产出的
+avatar latents + Whisper 音频特征。
+
+Teacher: musetalkV15/unet.pth  (~850MB FP32, [320,640,1280,1280])
+Student: student_musetalk.json (~136MB FP32, [128,256,512,512])
 
 蒸馏损失：
-  L_total = λ1 * L_output   (MSE student_out vs teacher_out, 最核心)
-          + λ2 * L_feat     (cosine_sim 中间特征对齐，带 projector)
-          + λ3 * L_recon    (L1 student_out vs gt_latent)
-          + λ4 * L_vgg      (VGG 感知损失)
-          + λ5 * L_sync     (SyncNet 唇同步损失)
+  L_total = λ1 * L_output  (MSE student_out vs teacher_out)
+          + λ2 * L_feat    (cosine_sim 中间特征对齐)
 
 运行方式（在 $MUSE_ROOT 目录下）：
-  accelerate launch --num_processes 4 $REPO/step3/distill/train_distill.py \
-      --config $REPO/step3/distill/configs/distill.yaml \
-      --student_config $REPO/step3/distill/configs/student_musetalk.json
+  cd $MUSE_ROOT && git pull origin main
+  PYTHONPATH=$MUSE_ROOT accelerate launch --num_processes 4 \\
+      $REPO/step3/distill/train_distill.py \\
+      --config    $REPO/step3/distill/configs/distill.yaml \\
+      --student_config $REPO/step3/distill/configs/student_musetalk.json \\
+      --avatar_list dataset/distill/train_avatars.txt
 """
 
 import argparse
 import json
 import logging
-import math
 import os
-import random
 import sys
-import time
 import warnings
 from datetime import timedelta
 
@@ -34,30 +34,24 @@ import torch.nn.functional as F
 from accelerate import Accelerator, InitProcessGroupKwargs
 from accelerate.logging import get_logger
 from accelerate.utils import DistributedDataParallelKwargs
-from diffusers import AutoencoderKL, UNet2DConditionModel
+from diffusers import UNet2DConditionModel
 from diffusers.models.attention_processor import AttnProcessor
 from diffusers.optimization import get_scheduler
-from einops import rearrange
 from omegaconf import OmegaConf
 from tqdm.auto import tqdm
-from transformers import WhisperModel
 
 MUSE_ROOT = os.environ.get("MUSE_ROOT", os.path.expanduser("~/MuseTalk"))
 if MUSE_ROOT not in sys.path:
     sys.path.insert(0, MUSE_ROOT)
 
-from musetalk.utils.utils import seed_everything, process_audio_features
-from musetalk.utils.training_utils import (
-    initialize_dataloaders,
-    initialize_syncnet,
-    initialize_vgg,
-)
+from musetalk.models.unet import PositionalEncoding
+from musetalk.utils.utils import load_all_model
 
-logger = get_logger(__name__, log_level="INFO")
 warnings.filterwarnings("ignore")
+logger = get_logger(__name__, log_level="INFO")
 
 
-# ==================== 特征提取 Hook ====================
+# ==================== 特征 Hook ====================
 
 class FeatureHook:
     def __init__(self):
@@ -66,7 +60,6 @@ class FeatureHook:
 
     def register(self, module: nn.Module, name: str):
         def hook(_, __, output):
-            # down_block 输出是 (hidden_states, res_samples) tuple，取第一个
             self._feats[name] = output[0] if isinstance(output, tuple) else output
         self._handles.append(module.register_forward_hook(hook))
 
@@ -84,24 +77,21 @@ class FeatureHook:
 # ==================== 特征投影器 ====================
 
 class FeatProjector(nn.Module):
-    """将 student 特征投影到 teacher 特征空间（1×1 Conv）。"""
-
-    def __init__(self, student_channels: list, teacher_channels: list):
+    def __init__(self, student_ch: list, teacher_ch: list):
         super().__init__()
         self.projs = nn.ModuleList([
             nn.Conv2d(s, t, 1, bias=False)
-            for s, t in zip(student_channels, teacher_channels)
+            for s, t in zip(student_ch, teacher_ch)
         ])
 
-    def forward(self, student_feats: list) -> list:
-        return [proj(f) for proj, f in zip(self.projs, student_feats)]
+    def forward(self, feats: list) -> list:
+        return [proj(f) for proj, f in zip(self.projs, feats)]
 
 
 # ==================== 主函数 ====================
 
 def main(args):
     cfg = OmegaConf.load(args.config)
-
     save_dir = os.path.join(cfg.output_dir, cfg.exp_name)
     os.makedirs(save_dir, exist_ok=True)
 
@@ -119,27 +109,26 @@ def main(args):
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
         level=logging.INFO,
     )
-    seed_everything(cfg.seed)
 
-    weight_dtype = torch.float32
-    if cfg.solver.mixed_precision == "fp16":
-        weight_dtype = torch.float16
-    elif cfg.solver.mixed_precision == "bf16":
-        weight_dtype = torch.bfloat16
+    weight_dtype = {"fp16": torch.float16, "bf16": torch.bfloat16}.get(
+        cfg.solver.mixed_precision, torch.float32
+    )
 
     # ==================== Teacher（冻结）====================
-    logger.info("加载 Teacher UNet（冻结）...")
-    with open(cfg.teacher_unet_config) as f:
-        teacher_cfg = json.load(f)
-    teacher_unet = UNet2DConditionModel(**teacher_cfg)
-    ckpt = torch.load(cfg.teacher_unet_path, map_location="cpu")
-    teacher_unet.load_state_dict(ckpt, strict=False)
+    logger.info("加载 Teacher UNet...")
+    vae, teacher_wrapper, pe = load_all_model(
+        unet_model_path=cfg.teacher_unet_path,
+        unet_config=cfg.teacher_unet_config,
+        device="cpu",
+    )
+    teacher_unet = teacher_wrapper.model
     teacher_unet.set_attn_processor(AttnProcessor())
     teacher_unet.requires_grad_(False)
     teacher_unet.eval()
+    vae.vae.requires_grad_(False)
     logger.info(f"Teacher 参数量: {sum(p.numel() for p in teacher_unet.parameters())/1e6:.1f}M")
 
-    # ==================== Student（训练目标）====================
+    # ==================== Student（训练）====================
     logger.info("初始化 Student UNet...")
     student_config_path = args.student_config or os.path.join(
         os.path.dirname(__file__), "configs", "student_musetalk.json"
@@ -152,48 +141,45 @@ def main(args):
         student_unet.enable_gradient_checkpointing()
     logger.info(f"Student 参数量: {sum(p.numel() for p in student_unet.parameters())/1e6:.1f}M")
 
-    # ==================== VAE & Whisper（冻结）====================
-    vae = AutoencoderKL.from_pretrained(
-        cfg.pretrained_model_name_or_path, subfolder=cfg.vae_type
-    )
-    vae.requires_grad_(False)
-
-    wav2vec = WhisperModel.from_pretrained(cfg.whisper_path).eval()
-    wav2vec.requires_grad_(False)
-
     # ==================== 特征 Hook ====================
-    DISTILL_LAYERS = list(cfg.feat_distill_layers)
+    LAYERS = list(cfg.feat_distill_layers)
     teacher_hook = FeatureHook()
     student_hook = FeatureHook()
 
-    def _get_module(unet, path: str):
+    def _get_module(unet, path):
         m = unet
         for p in path.split("."):
             m = getattr(m, p)
         return m
 
-    for layer_name in DISTILL_LAYERS:
-        teacher_hook.register(_get_module(teacher_unet, layer_name), layer_name)
-        student_hook.register(_get_module(student_unet, layer_name), layer_name)
+    for ln in LAYERS:
+        teacher_hook.register(_get_module(teacher_unet, ln), ln)
+        student_hook.register(_get_module(student_unet, ln), ln)
 
-    # Teacher/Student 各层通道数（与 block_out_channels 对应）
     teacher_ch = [320, 640, 1280, 640, 320]
     student_ch  = [128, 256,  512, 256, 128]
     projector = FeatProjector(student_ch, teacher_ch)
 
-    # ==================== 辅助损失 ====================
-    lp = cfg.loss_params
-    syncnet = initialize_syncnet(cfg, accelerator) if lp.sync_loss > 0 else None
-    vgg_fn  = initialize_vgg(cfg, accelerator)    if lp.vgg_loss  > 0 else None
+    # ==================== 数据集 ====================
+    sys.path.insert(0, os.path.dirname(__file__))
+    from avatar_dataset import build_distill_dataloaders
 
-    # ==================== 数据 ====================
-    dataloader_dict = initialize_dataloaders(cfg)
-    train_dataloader = dataloader_dict["train_dataloader"]
+    avatar_list = args.avatar_list or "dataset/distill/train_avatars.txt"
+    train_dl, val_dl = build_distill_dataloaders(
+        avatar_list_file=avatar_list,
+        avatar_base=cfg.get("avatar_base", "results/v15/avatars"),
+        audio_dir=cfg.get("audio_dir", "data/audio"),
+        whisper_model_path=cfg.get("whisper_model_path", "models/whisper/tiny.pt"),
+        batch_size=cfg.data.train_bs,
+        num_workers=cfg.data.num_workers,
+        samples_per_avatar=cfg.get("samples_per_avatar", 500),
+    )
+    logger.info(f"训练样本: {len(train_dl.dataset)}  验证样本: {len(val_dl.dataset)}")
 
     # ==================== 优化器 ====================
-    trainable_params = list(student_unet.parameters()) + list(projector.parameters())
+    trainable = list(student_unet.parameters()) + list(projector.parameters())
     optimizer = torch.optim.AdamW(
-        trainable_params,
+        trainable,
         lr=cfg.solver.learning_rate,
         betas=(cfg.solver.adam_beta1, cfg.solver.adam_beta2),
         weight_decay=cfg.solver.adam_weight_decay,
@@ -208,19 +194,18 @@ def main(args):
 
     # ==================== Accelerate 准备 ====================
     (
-        student_unet, projector, teacher_unet,
-        vae, wav2vec, optimizer,
-        train_dataloader, lr_scheduler,
+        student_unet, projector, teacher_unet, vae.vae,
+        optimizer, train_dl, lr_scheduler,
     ) = accelerator.prepare(
-        student_unet, projector, teacher_unet,
-        vae, wav2vec, optimizer,
-        train_dataloader, lr_scheduler,
+        student_unet, projector, teacher_unet, vae.vae,
+        optimizer, train_dl, lr_scheduler,
     )
     teacher_unet.to(weight_dtype)
-    vae.to(weight_dtype)
-    wav2vec.to(weight_dtype)
+    vae.vae.to(weight_dtype)
     student_unet.to(weight_dtype)
+    pe = pe.to(accelerator.device)
 
+    lp = cfg.loss_params
     global_step = 0
     progress_bar = tqdm(
         range(cfg.solver.max_train_steps),
@@ -231,165 +216,88 @@ def main(args):
     logger.info("  开始蒸馏训练")
     logger.info("=" * 60)
 
-    for _ in range(10000):
+    for _ in range(99999):
         student_unet.train()
         projector.train()
 
-        for batch in train_dataloader:
+        for batch in train_dl:
             with accelerator.accumulate(student_unet):
 
-                # ---------- 数据准备（与 train.py 完全一致）----------
-                pixel_values = batch["pixel_values_vid"].to(
-                    weight_dtype, non_blocking=True
-                )
-                ref_values = batch["pixel_values_ref_img"].to(
-                    weight_dtype, non_blocking=True
-                )
-                bsz, num_frames, c, h, w = pixel_values.shape
-
-                # 音频特征（经 Whisper encoder 处理）
-                audio_prompts = process_audio_features(
-                    cfg, batch, wav2vec, bsz, num_frames, weight_dtype
-                )
-                # reshape 与 train.py 相同
-                audio_flat = rearrange(audio_prompts, "b f c h w -> (b f) c h w")
-                audio_flat = rearrange(audio_flat, "(b f) c h w -> (b f) (c h) w", b=bsz)
-
-                # VAE encode（无梯度）
-                with torch.no_grad():
-                    frames = rearrange(pixel_values, "b f c h w -> (b f) c h w")
-                    gt_lat = vae.encode(frames).latent_dist.mode()
-                    gt_lat = gt_lat * vae.config.scaling_factor
-
-                    masked = pixel_values.clone()
-                    masked[:, :, :, h // 2:, :] = -1
-                    masked_frames = rearrange(masked, "b f c h w -> (b f) c h w")
-                    masked_lat = vae.encode(masked_frames).latent_dist.mode()
-                    masked_lat = masked_lat * vae.config.scaling_factor
-
-                    ref_frames = rearrange(ref_values, "b f c h w -> (b f) c h w")
-                    ref_lat = vae.encode(ref_frames).latent_dist.mode()
-                    ref_lat = ref_lat * vae.config.scaling_factor
-
-                input_lat = torch.cat([masked_lat, ref_lat], dim=1).to(weight_dtype)
-                timestep  = torch.zeros(
-                    input_lat.shape[0], dtype=torch.long, device=input_lat.device
+                latent   = batch["latent"].to(weight_dtype)     # [B, 8, 32, 32]
+                audio_f  = batch["audio_feat"].to(weight_dtype) # [B, 50, 384]
+                timestep = torch.zeros(
+                    latent.shape[0], dtype=torch.long, device=latent.device
                 )
 
-                # ---------- Teacher 推理 ----------
+                # 音频位置编码（与推理一致）
+                audio_f = pe(audio_f)  # [B, 50, 384]
+
+                # ---------- Teacher ----------
                 teacher_hook.clear()
                 with torch.no_grad():
                     teacher_out = teacher_unet(
-                        input_lat, timestep,
-                        encoder_hidden_states=audio_flat,
+                        latent, timestep,
+                        encoder_hidden_states=audio_f,
                         return_dict=False,
                     )[0]
-                teacher_feats = [teacher_hook.get(l) for l in DISTILL_LAYERS]
+                t_feats = [teacher_hook.get(l) for l in LAYERS]
 
-                # ---------- Student 推理 ----------
+                # ---------- Student ----------
                 student_hook.clear()
                 student_out = student_unet(
-                    input_lat, timestep,
-                    encoder_hidden_states=audio_flat,
+                    latent, timestep,
+                    encoder_hidden_states=audio_f,
                     return_dict=False,
                 )[0]
-                student_feats = [student_hook.get(l) for l in DISTILL_LAYERS]
+                s_feats = [student_hook.get(l) for l in LAYERS]
 
                 # ---------- 损失 ----------
-                # 1. 输出蒸馏
-                L_out = F.mse_loss(student_out, teacher_out.detach())
+                L_out  = F.mse_loss(student_out, teacher_out.detach())
 
-                # 2. 特征蒸馏
-                proj_feats = projector(student_feats)
-                L_feat = torch.tensor(0.0, device=input_lat.device)
-                valid_layers = 0
-                for pf, tf in zip(proj_feats, teacher_feats):
+                proj_feats = projector(s_feats)
+                L_feat = torch.tensor(0.0, device=latent.device)
+                valid  = 0
+                for pf, tf in zip(proj_feats, t_feats):
                     if tf is not None and pf is not None:
                         sim = F.cosine_similarity(
                             pf.flatten(2), tf.detach().flatten(2), dim=1
                         )
                         L_feat = L_feat + (1 - sim.mean())
-                        valid_layers += 1
-                if valid_layers > 0:
-                    L_feat = L_feat / valid_layers
+                        valid += 1
+                if valid:
+                    L_feat = L_feat / valid
 
-                # 3. GT L1 重建
-                L_recon = F.l1_loss(student_out, gt_lat.detach())
-
-                # 4. VGG 感知
-                L_vgg = torch.tensor(0.0, device=input_lat.device)
-                if vgg_fn is not None and lp.vgg_loss > 0:
-                    with torch.no_grad():
-                        pred_img = vae.decode(
-                            student_out / vae.config.scaling_factor
-                        ).sample.float()
-                        gt_img = vae.decode(
-                            gt_lat / vae.config.scaling_factor
-                        ).sample.float()
-                    L_vgg = vgg_fn(pred_img, gt_img)
-
-                # 5. SyncNet
-                L_sync = torch.tensor(0.0, device=input_lat.device)
-                if syncnet is not None and lp.sync_loss > 0:
-                    try:
-                        height = pixel_values.shape[3]
-                        pred_img_sync = vae.decode(
-                            student_out / vae.config.scaling_factor
-                        ).sample
-                        pred_img_sync = pred_img_sync[:, :, height // 2:, :]
-                        audio_embed = syncnet.get_audio_embed(batch["mel"])
-                        vision_embed = syncnet.get_vision_embed(
-                            pred_img_sync.reshape(bsz, -1, *pred_img_sync.shape[2:])
-                        )
-                        L_sync = 1 - F.cosine_similarity(
-                            audio_embed, vision_embed, dim=1
-                        ).mean()
-                    except Exception:
-                        pass
-
-                loss = (
-                    lp.output_distill * L_out
-                    + lp.feat_distill  * L_feat
-                    + lp.l1_recon      * L_recon
-                    + lp.vgg_loss      * L_vgg
-                    + lp.sync_loss     * L_sync
-                )
+                loss = lp.output_distill * L_out + lp.feat_distill * L_feat
 
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(
-                        trainable_params, cfg.solver.max_grad_norm
-                    )
+                    accelerator.clip_grad_norm_(trainable, cfg.solver.max_grad_norm)
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad()
 
-            # ---------- 日志 & 保存 ----------
             if accelerator.sync_gradients:
                 global_step += 1
                 progress_bar.update(1)
                 progress_bar.set_postfix({
-                    "loss":    f"{loss.item():.4f}",
-                    "L_out":   f"{L_out.item():.4f}",
-                    "L_feat":  f"{L_feat.item():.4f}",
-                    "L_recon": f"{L_recon.item():.4f}",
+                    "loss":   f"{loss.item():.4f}",
+                    "L_out":  f"{L_out.item():.4f}",
+                    "L_feat": f"{L_feat.item():.4f}",
                 })
+
                 if accelerator.is_main_process:
                     accelerator.log({
-                        "loss":            loss.item(),
-                        "L_output_distill": L_out.item(),
-                        "L_feat_distill":  L_feat.item(),
-                        "L_recon":         L_recon.item(),
-                        "L_vgg":           L_vgg.item(),
-                        "L_sync":          L_sync.item(),
-                        "lr": lr_scheduler.get_last_lr()[0],
+                        "loss":   loss.item(),
+                        "L_out":  L_out.item(),
+                        "L_feat": L_feat.item(),
+                        "lr":     lr_scheduler.get_last_lr()[0],
                     }, step=global_step)
 
                 if global_step % cfg.checkpointing_steps == 0 and accelerator.is_main_process:
                     raw = accelerator.unwrap_model(student_unet)
-                    ckpt_path = os.path.join(save_dir, f"student_unet-{global_step}.pth")
-                    torch.save(raw.state_dict(), ckpt_path)
-                    logger.info(f"✓ checkpoint: {ckpt_path}")
+                    ckpt = os.path.join(save_dir, f"student_unet-{global_step}.pth")
+                    torch.save(raw.state_dict(), ckpt)
+                    logger.info(f"✓ checkpoint: {ckpt}")
 
                 if global_step >= cfg.solver.max_train_steps:
                     break
@@ -397,15 +305,15 @@ def main(args):
         if global_step >= cfg.solver.max_train_steps:
             break
 
-    # ==================== 最终保存 ====================
+    # ==================== 保存 ====================
     accelerator.wait_for_everyone()
     if accelerator.is_main_process:
         raw = accelerator.unwrap_model(student_unet)
-        final_path = os.path.join(save_dir, "student_unet_final.pth")
-        torch.save(raw.state_dict(), final_path)
+        final = os.path.join(save_dir, "student_unet_final.pth")
+        torch.save(raw.state_dict(), final)
         n = sum(p.numel() for p in raw.parameters())
-        logger.info(f"✓ 训练完成: {final_path}")
-        logger.info(f"  参数量: {n/1e6:.1f}M  FP32: ~{n*4/1e6:.0f}MB  INT8: ~{n/1e6:.0f}MB")
+        logger.info(f"✓ 训练完成: {final}")
+        logger.info(f"  参数量: {n/1e6:.1f}M  FP32≈{n*4/1e6:.0f}MB  INT8≈{n/1e6:.0f}MB")
 
     teacher_hook.remove()
     student_hook.remove()
@@ -414,11 +322,9 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config",
-                        type=str, required=True,
-                        help="蒸馏训练配置（distill.yaml）")
-    parser.add_argument("--student_config",
-                        type=str, default=None,
-                        help="Student UNet 架构 JSON（默认 configs/student_musetalk.json）")
+    parser.add_argument("--config",         type=str, required=True)
+    parser.add_argument("--student_config", type=str, default=None)
+    parser.add_argument("--avatar_list",    type=str, default=None,
+                        help="avatar 列表文件（默认 dataset/distill/train_avatars.txt）")
     args = parser.parse_args()
     main(args)

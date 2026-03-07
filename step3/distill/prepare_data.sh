@@ -1,99 +1,130 @@
 #!/bin/bash
-# MuseTalk HDTF 数据集预处理脚本
+# MuseTalk 蒸馏数据集准备脚本（轻量版）
+#
+# 不依赖 mmpose/decord，直接复用 MuseTalk realtime_inference.py 的预处理输出
+# 将多个 avatar 的预处理结果打包为蒸馏训练可用的数据集
 #
 # 使用方式：
 #   cd $MUSE_ROOT
-#   bash $REPO/step3/distill/prepare_data.sh [HDTF_RAW_DIR]
+#   bash $REPO/step3/distill/prepare_data.sh
 #
-# 参数：
-#   HDTF_RAW_DIR: HDTF 原始视频目录（默认 ./dataset/HDTF/source/）
-#
-# 预期输出结构：
-#   dataset/HDTF/
-#     source/           ← 原始视频（mp4）
-#     video_root_25fps/ ← 转码为 25fps
-#     video_audio_clip_root/ ← 按 30s 切片
-#     meta/             ← 每个视频片段的 pkl 元数据
-#     train.txt         ← 训练集列表
-#     val.txt           ← 验证集列表
+# 依赖：
+#   1. 已运行过 scripts/realtime_inference.py（有 results/v15/avatars/*/）
+#   2. 或手动指定视频目录
 
 set -e
 
-HDTF_RAW_DIR="${1:-./dataset/HDTF/source/}"
-PREPROCESS_CFG="./configs/training/preprocess.yaml"
+REPO="${REPO:-/data/luochuan/talking-head-edge/talking-head-edge}"
+MUSE_ROOT="${MUSE_ROOT:-$(pwd)}"
+DISTILL_DATA_DIR="./dataset/distill"
 
 echo "============================================================"
-echo "  MuseTalk HDTF 数据预处理"
+echo "  蒸馏数据集准备（轻量版，复用 avatar 预处理结果）"
 echo "============================================================"
-echo "原始视频目录: $HDTF_RAW_DIR"
 
-# ---------- Step 0：检查 HDTF 原始数据是否存在 ----------
-if [ ! -d "$HDTF_RAW_DIR" ] || [ -z "$(ls -A $HDTF_RAW_DIR 2>/dev/null)" ]; then
-    echo ""
-    echo "⚠️  HDTF 原始视频不存在或为空: $HDTF_RAW_DIR"
-    echo ""
-    echo "获取方式（选一）："
-    echo ""
-    echo "  方式1：从 HDTF 官方源下载（需申请访问）"
-    echo "    https://github.com/MRzzm/HDTF"
-    echo ""
-    echo "  方式2：直接使用已有讲话视频（任意来源）"
-    echo "    - 将视频 .mp4 放入 $HDTF_RAW_DIR"
-    echo "    - 推荐：人脸清晰、正面、光照良好、单人讲话"
-    echo "    - 最少 10 个视频（每个 >30s），建议 50+ 个"
-    echo ""
-    echo "  方式3：使用已有的测试视频（快速验证流程）"
-    echo "    cp data/video/*.mp4 $HDTF_RAW_DIR"
-    echo "    （数量少，训练效果有限，仅用于调试）"
-    echo ""
-    exit 1
+# ---------- Step 1：预处理所有视频为 avatar ----------
+AVATAR_BASE="results/v15/avatars"
+VIDEO_DIR="data/video"
+AUDIO_DIR="data/audio"
+
+mkdir -p "$DISTILL_DATA_DIR"
+
+echo "[Step 1] 检查已有 avatar 预处理结果..."
+EXISTING=$(ls -d "$AVATAR_BASE"/avator_* 2>/dev/null | wc -l)
+echo "  已有 avatar 数量: $EXISTING"
+
+# 对每个测试视频做预处理（如果还没有的话）
+for VID in "$VIDEO_DIR"/*.mp4; do
+    VNAME=$(basename "$VID" .mp4)
+    AVATAR_ID="avator_${VNAME}"
+    AVATAR_DIR="$AVATAR_BASE/$AVATAR_ID"
+
+    if [ -d "$AVATAR_DIR/latents" ]; then
+        echo "  ✓ $AVATAR_ID 已存在，跳过"
+        continue
+    fi
+
+    # 找对应音频，没有就用 yongen.wav 作为占位
+    AUDIO="$AUDIO_DIR/${VNAME}.wav"
+    if [ ! -f "$AUDIO" ]; then
+        AUDIO="$AUDIO_DIR/yongen.wav"
+    fi
+
+    echo "  预处理: $VNAME → $AVATAR_ID"
+    cat > /tmp/prep_${VNAME}.yaml << EOF
+${AVATAR_ID}:
+  preparation: true
+  bbox_shift: 0
+  video_path: ${VID}
+  audio_clips:
+    audio_0: ${AUDIO}
+EOF
+
+    PYTHONPATH="$MUSE_ROOT" python scripts/realtime_inference.py \
+        --version v15 \
+        --unet_config  ./models/musetalkV15/musetalk.json \
+        --unet_model_path ./models/musetalkV15/unet.pth \
+        --inference_config /tmp/prep_${VNAME}.yaml 2>&1 | tail -5
+    echo "  ✓ $AVATAR_ID 预处理完成"
+done
+
+# ---------- Step 2：生成蒸馏数据集索引 ----------
+echo ""
+echo "[Step 2] 生成数据集索引..."
+
+INDEX_FILE="$DISTILL_DATA_DIR/avatar_list.txt"
+> "$INDEX_FILE"
+
+COUNT=0
+for AVATAR_DIR in "$AVATAR_BASE"/avator_*; do
+    if [ -d "$AVATAR_DIR/latents" ]; then
+        AVATAR_ID=$(basename "$AVATAR_DIR")
+        LATENT_COUNT=$(ls "$AVATAR_DIR/latents/"*.pt 2>/dev/null | wc -l)
+        if [ "$LATENT_COUNT" -eq 0 ]; then
+            # 检查是否有 unet_input_latent_list.pt
+            if [ -f "$AVATAR_DIR/latents/unet_input_latent_list.pt" ]; then
+                echo "$AVATAR_ID" >> "$INDEX_FILE"
+                COUNT=$((COUNT + 1))
+            fi
+        fi
+    fi
+done
+
+# 如果上面没找到，直接列出有 latents 目录的
+if [ "$COUNT" -eq 0 ]; then
+    for AVATAR_DIR in "$AVATAR_BASE"/avator_*; do
+        if [ -d "$AVATAR_DIR" ]; then
+            AVATAR_ID=$(basename "$AVATAR_DIR")
+            echo "$AVATAR_ID" >> "$INDEX_FILE"
+            COUNT=$((COUNT + 1))
+        fi
+    done
 fi
 
-VIDEO_COUNT=$(ls "$HDTF_RAW_DIR"/*.mp4 2>/dev/null | wc -l)
-echo "✓ 发现 $VIDEO_COUNT 个原始视频"
+echo "  ✓ 数据集 avatar 数量: $COUNT"
+echo "  ✓ 索引文件: $INDEX_FILE"
 
-# ---------- Step 1：修改 preprocess.yaml 以指向 HDTF 目录 ----------
-mkdir -p dataset/HDTF/source
-# 如果用户指定了不同目录，创建软链接
-if [ "$HDTF_RAW_DIR" != "./dataset/HDTF/source/" ]; then
-    echo "创建软链接: $HDTF_RAW_DIR → ./dataset/HDTF/source/"
-    ln -sfn "$(realpath $HDTF_RAW_DIR)"/* ./dataset/HDTF/source/ 2>/dev/null || true
-fi
-
-# ---------- Step 2：运行 MuseTalk 预处理 ----------
+# ---------- Step 3：验证并生成 train/val 分割 ----------
 echo ""
-echo "[Step 2] 运行 MuseTalk preprocess.py ..."
-echo "  这将执行：25fps 转码 → 切片 → 人脸检测 → landmark 提取 → 元数据生成"
-echo "  预计耗时：~1-2 分钟/视频（取决于 GPU 和视频时长）"
-echo ""
+echo "[Step 3] 生成 train/val 分割..."
 
-PYTHONPATH="$MUSE_ROOT" python scripts/preprocess.py \
-    --cfg "$PREPROCESS_CFG"
+TOTAL=$COUNT
+VAL_COUNT=1
+TRAIN_COUNT=$((TOTAL - VAL_COUNT))
 
-# ---------- Step 3：验证输出 ----------
-echo ""
-echo "[Step 3] 验证预处理输出..."
-TRAIN_TXT="./dataset/HDTF/train.txt"
-META_DIR="./dataset/HDTF/meta"
+head -n "$TRAIN_COUNT" "$INDEX_FILE" > "$DISTILL_DATA_DIR/train_avatars.txt"
+tail -n "$VAL_COUNT"   "$INDEX_FILE" > "$DISTILL_DATA_DIR/val_avatars.txt"
 
-if [ ! -f "$TRAIN_TXT" ]; then
-    echo "✗ train.txt 未生成，预处理可能失败"
-    exit 1
-fi
-
-TRAIN_COUNT=$(tail -n +2 "$TRAIN_TXT" | wc -l)
-META_COUNT=$(ls "$META_DIR"/*.pkl 2>/dev/null | wc -l)
-
-echo "✓ train.txt: $TRAIN_COUNT 条记录"
-echo "✓ meta/*.pkl: $META_COUNT 个文件"
+echo "  ✓ train: $TRAIN_COUNT  val: $VAL_COUNT"
 
 echo ""
 echo "============================================================"
-echo "  数据预处理完成！"
+echo "  数据准备完成"
 echo "============================================================"
+echo "  索引: $DISTILL_DATA_DIR/train_avatars.txt"
+echo "  Avatar 目录: $AVATAR_BASE/"
 echo ""
-echo "下一步：启动蒸馏训练"
-echo ""
+echo "下一步："
 echo "  cd \$MUSE_ROOT && git pull origin main"
 echo "  accelerate launch --num_processes 4 \\"
 echo "      \$REPO/step3/distill/train_distill.py \\"

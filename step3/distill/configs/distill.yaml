@@ -1,50 +1,31 @@
 # MuseTalk UNet 知识蒸馏训练配置
 # Teacher: musetalkV15/unet.pth (~850MB FP32, [320,640,1280,1280])
 # Student: student_musetalk.json (~136MB FP32, [128,256,512,512])
+# 数据: 直接复用 realtime_inference.py 预处理产出（无需 mmpose/decord）
 
 exp_name: 'distill_v1'
 output_dir: './exp_out/distill/'
 
 # ========== 模型路径 ==========
-teacher_unet_path: "models/musetalkV15/unet.pth"
+teacher_unet_path:   "models/musetalkV15/unet.pth"
 teacher_unet_config: "models/musetalkV15/musetalk.json"
-pretrained_model_name_or_path: "./models"
-vae_type: "sd-vae"
-whisper_path: "./models/whisper"
+whisper_model_path:  "models/whisper/tiny.pt"
 
-# ========== 数据集（与 stage1.yaml 保持一致）==========
-padding_pixel_mouth: 10
-cropping_jaw2edge_margin_mean: 10
-cropping_jaw2edge_margin_std: 10
-crop_type: "crop_resize"
-random_margin_method: "normal"
-num_backward_frames: 16
-ref_dropout_rate: 0
-use_adapted_weight: False
-syncnet_config_path: "./configs/training/syncnet.yaml"
+# ========== 数据路径 ==========
+avatar_base:  "results/v15/avatars"
+audio_dir:    "data/audio"
+samples_per_avatar: 500    # 每个 avatar 最多采样帧数
 
 data:
-  dataset_key: "HDTF"
-  train_bs: 16
-  image_size: 256
-  n_sample_frames: 1
-  num_workers: 8
-  audio_padding_length_left: 2
-  audio_padding_length_right: 2
-  sample_method: pose_similarity_and_mouth_dissimilarity
-  top_k_ratio: 0.51
-  contorl_face_min_size: True
-  min_face_size: 150
+  train_bs:   16
+  num_workers: 4
 
 # ========== 蒸馏损失权重 ==========
 loss_params:
-  output_distill: 1.0     # MSE(student_out, teacher_out) —— 最核心
-  feat_distill: 0.1       # cosine_sim 中间特征对齐
-  l1_recon: 0.5           # L1(student_out, gt_latent)
-  vgg_loss: 0.01          # VGG 感知损失
-  sync_loss: 0.1          # SyncNet 唇同步损失
+  output_distill: 1.0   # MSE(student_out, teacher_out)
+  feat_distill:   0.1   # cosine_sim 中间特征对齐
 
-# ========== 特征蒸馏层（从 Teacher/Student 同名 block 取特征）==========
+# ========== 特征蒸馏层 ==========
 feat_distill_layers:
   - "down_blocks.0"
   - "down_blocks.1"
@@ -56,24 +37,18 @@ feat_distill_layers:
 solver:
   gradient_accumulation_steps: 2
   mixed_precision: 'fp16'
-  enable_xformers_memory_efficient_attention: True
   gradient_checkpointing: True
-  max_train_steps: 100000
+  max_train_steps: 50000
   max_grad_norm: 1.0
   learning_rate: 5.0e-5
-  scale_lr: False
   lr_warmup_steps: 500
   lr_scheduler: "cosine"
-  use_8bit_adam: False
   adam_beta1: 0.9
   adam_beta2: 0.999
   adam_weight_decay: 1.0e-2
   adam_epsilon: 1.0e-8
 
 # ========== 验证 & 保存 ==========
-total_limit: 5
-checkpointing_steps: 5000
-val_freq: 1000
-num_images_to_keep: 8
+checkpointing_steps: 2000
 
 seed: 42
