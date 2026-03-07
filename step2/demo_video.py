@@ -208,64 +208,79 @@ fps_base = total_frames / sum(baseline_t)
 print(f"  基线完成：{fps_base:.1f} FPS")
 
 # ==================== MATS 推理（P3+ 像素帧缓存）====================
-print(f"\n[MATS 推理：像素帧缓存，阈值={args.threshold}]")
+# 第一遍：扫描决定每帧是否跳过（纯 CPU 运算，无 GPU 开销）
+print(f"\n[MATS 推理：像素帧缓存，阈值={args.threshold}，max_skip={args.max_skip}]")
+compute_flags = []   # True = 需要 UNet 计算
+prev_lat_scan = None
+consec_skip_scan = 0
+for i in range(total_frames):
+    lat_s = input_latent_list_cycle[i % cycle_len]
+    if prev_lat_scan is not None:
+        motion = float((lat_s.float() - prev_lat_scan.float()).norm() /
+                       (prev_lat_scan.float().norm() + 1e-6))
+    else:
+        motion = 999.0
+    max_skip_hit = (args.max_skip > 0 and consec_skip_scan >= args.max_skip)
+    need_compute = (i == 0 or motion >= args.threshold or max_skip_hit)
+    compute_flags.append(need_compute)
+    consec_skip_scan = 0 if need_compute else consec_skip_scan + 1
+    prev_lat_scan = lat_s
+
+# 第二遍：连续计算帧打包成 batch，跳过帧直接复用像素
 mats_out     = []
 mats_t       = []
 skip_flags   = []
-prev_lat     = None
 cached_pixel = None
-skip_count = 0
-unet_count = 0
-consec_skip = 0   # 当前连续跳过帧数
+skip_count   = 0
+unet_count   = 0
 
 with torch.no_grad():
-    for i in range(total_frames):
-        lat = input_latent_list_cycle[i % cycle_len].to(device=device, dtype=weight_dtype)
+    i = 0
+    while i < total_frames:
+        if compute_flags[i]:
+            # 收集连续需要计算的帧（最多 batch_size 帧）
+            j = i
+            b_lats, b_audio = [], []
+            while j < total_frames and compute_flags[j] and (j - i) < args.batch_size:
+                lat_j = input_latent_list_cycle[j % cycle_len].to(device=device, dtype=weight_dtype)
+                wc = whisper_chunks[j]
+                w = wc.cpu().unsqueeze(0).to(device) if isinstance(wc, torch.Tensor) \
+                    else torch.from_numpy(np.array([wc])).to(device)
+                b_lats.append(lat_j)
+                b_audio.append(pe(w))
+                j += 1
 
-        # 视觉运动检测
-        if prev_lat is not None:
-            motion = float((lat.float() - prev_lat.float()).norm() /
-                           (prev_lat.float().norm() + 1e-6))
-        else:
-            motion = 999.0
-
-        wc = whisper_chunks[i]
-        if isinstance(wc, torch.Tensor):
-            w = wc.cpu().unsqueeze(0).to(device)
-        else:
-            w = torch.from_numpy(np.array([wc])).to(device)
-        audio_feat = pe(w)
-
-        sync(); t0 = time.time()
-
-        max_skip_hit = (args.max_skip > 0 and consec_skip >= args.max_skip)
-        if motion >= args.threshold or cached_pixel is None or max_skip_hit:
-            pred = unet.model(lat, timesteps,
-                              encoder_hidden_states=audio_feat).sample
+            lat_batch   = torch.cat(b_lats, 0)
+            audio_batch = torch.cat(b_audio, 0)
+            sync(); t0 = time.time()
+            pred = unet.model(lat_batch, timesteps,
+                              encoder_hidden_states=audio_batch).sample
             pred = pred.to(dtype=vae.vae.dtype)
             faces = vae.decode_latents(pred)
-            face  = faces[0]
-            cached_pixel = face.copy()
-            skipped = False
-            unet_count += 1
-            consec_skip = 0
+            sync(); elapsed = time.time() - t0
+
+            per_t = elapsed / len(b_lats)
+            for k, face in enumerate(faces):
+                cached_pixel = face.copy()
+                mats_out.append(compose_frame(i + k, face))
+                mats_t.append(per_t)
+                skip_flags.append(False)
+                unet_count += 1
+            i = j
         else:
-            face  = cached_pixel
-            skipped = True
+            sync(); t0 = time.time()
+            face = cached_pixel
+            sync(); elapsed = time.time() - t0
+            mats_out.append(compose_frame(i, face))
+            mats_t.append(elapsed)
+            skip_flags.append(True)
             skip_count += 1
-            consec_skip += 1
+            i += 1
 
-        sync(); elapsed = time.time() - t0
-
-        composed = compose_frame(i, face)
-        mats_out.append(composed)
-        mats_t.append(elapsed)
-        skip_flags.append(skipped)
-        prev_lat = lat.clone()
-
-        if (i + 1) % 50 == 0 or (i + 1) == total_frames:
-            print(f"  [{i+1}/{total_frames}] {1/np.mean(mats_t[-20:]):.1f} FPS  "
-                  f"跳过率={skip_count/(i+1):.1%}")
+        done = len(mats_out)
+        if done % 50 == 0 or done == total_frames:
+            print(f"  [{done}/{total_frames}] {1/np.mean(mats_t[-20:]):.1f} FPS  "
+                  f"跳过率={skip_count/done:.1%}")
 
 fps_mats = total_frames / sum(mats_t)
 skip_rate = skip_count / total_frames

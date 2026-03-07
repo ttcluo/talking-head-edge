@@ -68,10 +68,10 @@ YAML
         --num_frames "$NUM_FRAMES" \
         --out        "$DEMO_OUT" 2>&1 | tee "$LOG"
 
-    # demo_video.py 同时输出 profile_results/baseline.mp4 和 profile_results/mats.mp4
-    # 立刻保存到按视频命名的文件，防止下次运行覆盖
-    cp "profile_results/baseline.mp4" "$RESULT_DIR/${VNAME}_baseline.mp4"
-    cp "profile_results/mats.mp4"     "$RESULT_DIR/${VNAME}_mats.mp4"
+    # demo_video.py 把独立文件写到 --out 所在目录（即 $RESULT_DIR）
+    # 立刻重命名，防止下次运行覆盖
+    cp "$RESULT_DIR/baseline.mp4" "$RESULT_DIR/${VNAME}_baseline.mp4"
+    cp "$RESULT_DIR/mats.mp4"     "$RESULT_DIR/${VNAME}_mats.mp4"
 
     # 3. 从日志提取数字
     SKIP_RATE=$(grep -oP '跳过率：\K[\d.]+(?=%)' "$LOG" | tail -1)
