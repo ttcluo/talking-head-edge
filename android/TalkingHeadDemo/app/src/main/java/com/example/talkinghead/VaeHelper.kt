@@ -14,6 +14,7 @@ class VaeHelper(
     private val context: Context,
     private val modelPath: String,
     private val scalingFactor: Float = 0.18215f,
+    private val useNnapi: Boolean = true,
 ) {
     private val env = OrtEnvironment.getEnvironment()
     private lateinit var session: OrtSession
@@ -26,8 +27,21 @@ class VaeHelper(
     }
 
     fun load() {
+        if (useNnapi) {
+            try {
+                val opts = OrtSession.SessionOptions().apply {
+                    setIntraOpNumThreads(2)
+                    addNnapi()
+                }
+                session = env.createSession(modelPath, opts)
+                Log.i(TAG, "VAE Decoder 加载完成 (NNAPI): $modelPath")
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "VAE NNAPI 加载失败，回退 CPU: ${e.message}")
+            }
+        }
         session = env.createSession(modelPath, OrtSession.SessionOptions().apply { setIntraOpNumThreads(2) })
-        Log.i(TAG, "VAE Decoder 加载完成: $modelPath")
+        Log.i(TAG, "VAE Decoder 加载完成 (CPU): $modelPath")
     }
 
     /**
