@@ -1,0 +1,6 @@
+# 仅 yongen：用于 realtime_inference.py --inference_config（preparation 生成 results/v15/avatars/yongen/）
+yongen:
+  preparation: True
+  video_path: "data/video/yongen.mp4"
+  audio_clips:
+    audio_0: "data/audio/yongen.wav"

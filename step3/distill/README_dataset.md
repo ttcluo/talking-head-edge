@@ -223,14 +223,18 @@ python $REPO/step3/distill/run_full_pipeline.py \
 
 **1）预处理（若还没有 `results/v15/avatars/yongen/`）**
 
-在 `$MUSE_ROOT` 下：
+MuseTalk 的 `realtime_inference.py` 只认 **--inference_config** 指向的 YAML（无 `--avatar_id`/`--video_path` 参数）。仓库已提供 `step3/distill/configs/realtime_yongen.yaml`，在 `$MUSE_ROOT` 下执行：
 
 ```bash
-PYTHONPATH=$MUSE_ROOT python scripts/realtime_inference.py \
-    --version v15 --preparation True \
-    --avatar_id yongen \
-    --video_path data/video/yongen.mp4
+cd $MUSE_ROOT
+export PYTHONPATH=$MUSE_ROOT
+
+python scripts/realtime_inference.py \
+    --version v15 \
+    --inference_config $REPO/step3/distill/configs/realtime_yongen.yaml
 ```
+
+若 `yongen` 目录已存在，脚本会交互询问是否重建，选 `n` 即跳过预处理只做推理；选 `y` 会重新生成。仅做预处理时可在推理开始前 Ctrl+C 退出。
 
 **2）预计算 yongen 的音频特征**
 
