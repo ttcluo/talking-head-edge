@@ -10,3 +10,10 @@ local.properties
 *.keystore
 *.onnx
 *.bin
+# 以下由脚本生成，不纳入版本控制，避免 pull 覆盖本地生成
+meta.json
+video_meta.json
+latents_seq.bin
+audio_seq.bin
+latent_test.bin
+audio_test.bin
