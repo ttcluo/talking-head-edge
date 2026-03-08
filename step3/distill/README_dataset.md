@@ -192,6 +192,31 @@ python $REPO/step3/distill/eval_student.py \
 - **前提**：`results/v15/avatars/avator_1/` 已存在（含 latents.pt、coords.pkl、full_imgs），且 `dataset/distill/audio_feats/avator_1.pt` 已生成（否则先跑 `precompute_audio_feats.py` 针对 avator_1）。
 - **输出**：`profile_results/student_eval/student.mp4`、`teacher.mp4`，以及 SSIM/PSNR 与 FPS 打印。下载或本地打开这两个 MP4 即可对比画质。
 
+### 五.2 完整优化管线对比：原始 MuseTalk vs 本方法（MATS + Student）
+
+用下面脚本做 **原始 MuseTalk（Teacher 全帧） vs 本方法（MATS + 蒸馏 Student）** 的对比，验证整体质量不降且推理速度明显提升：
+
+```bash
+cd $MUSE_ROOT
+export PYTHONPATH=$MUSE_ROOT
+
+python $REPO/step3/distill/run_full_pipeline.py \
+    --student_ckpt exp_out/distill/distill_v1/student_unet_final.pth \
+    --student_config $REPO/step3/distill/configs/student_musetalk.json \
+    --avatar_id avator_1 \
+    --num_frames 200 \
+    --threshold 0.15 --max_skip 2 \
+    --out_dir profile_results/full_pipeline \
+    --audio data/audio/1.wav
+```
+
+- **前提**：与五.1 相同（avator_1 预处理 + `dataset/distill/audio_feats/avator_1.pt`）。`--audio` 可选，用于合成带音轨的 MP4。
+- **输出**：
+  - `baseline_musetalk.mp4`：原始 MuseTalk（Teacher 全帧）
+  - `full_pipeline_MATS_Student.mp4`：本方法（MATS + Student）
+  - `full_pipeline_results.json`：基线 FPS、本方法 FPS、**加速比**、**SSIM/PSNR（本方法 vs 基线）**
+- 终端会打印对比汇总：加速比与质量（SSIM/PSNR），便于判断质量是否不降、速度是否明显提升。
+
 ---
 
 ## 六、目录结构小结
