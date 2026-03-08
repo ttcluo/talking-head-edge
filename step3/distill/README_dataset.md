@@ -18,6 +18,11 @@
   - Hugging Face：<https://huggingface.co/datasets/global-optima-research/HDTF>（按页说明下载）。
   - 或从论文/官方仓库获取链接：<https://github.com/MRzzm/HDTF>。
 - **放置**：将下载得到的 **MP4 视频** 放到统一目录，例如 `$MUSE_ROOT/dataset/HDTF/source/`。若使用 MuseTalk 自带预处理，需保证 `configs/training/preprocess.yaml` 里 `video_root_raw` 指向该目录。
+- **若下载到的是 videos.zip**：放在 `dataset/HDTF/source/` 下后，用本仓库脚本解压并整理为同一目录 MP4：
+  ```bash
+  python $REPO/step3/distill/unzip_hdtf_videos.py --dir $MUSE_ROOT/dataset/HDTF/source
+  ```
+  可选 `--remove_zip` 解压后删除 zip。完成后用该目录作 `prepare_distill_data.py` 的 `--video_dir`。
 
 ### 1.2 无法访问 Hugging Face 时的替代来源
 
