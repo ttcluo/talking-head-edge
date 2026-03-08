@@ -172,6 +172,28 @@ PYTHONPATH=$MUSE_ROOT accelerate launch --num_processes 4 \
 
 ---
 
+## 五.1 用已有 Student 看推理视频效果（可选）
+
+若已有之前 6 个 avatar 训好的蒸馏 checkpoint（如 `student_unet_final.pth`），可直接跑推理生成 **Student / Teacher 对比视频**，看画质与速度：
+
+```bash
+cd $MUSE_ROOT
+export PYTHONPATH=$MUSE_ROOT
+
+python $REPO/step3/distill/eval_student.py \
+    --student_ckpt exp_out/distill/distill_v1/student_unet_final.pth \
+    --student_config $REPO/step3/distill/configs/student_musetalk.json \
+    --avatar_id avator_1 \
+    --audio data/audio/yongen.wav \
+    --num_frames 200 \
+    --out_dir profile_results/student_eval
+```
+
+- **前提**：`results/v15/avatars/avator_1/` 已存在（含 latents.pt、coords.pkl、full_imgs），且 `dataset/distill/audio_feats/avator_1.pt` 已生成（否则先跑 `precompute_audio_feats.py` 针对 avator_1）。
+- **输出**：`profile_results/student_eval/student.mp4`、`teacher.mp4`，以及 SSIM/PSNR 与 FPS 打印。下载或本地打开这两个 MP4 即可对比画质。
+
+---
+
 ## 六、目录结构小结
 
 ```text
