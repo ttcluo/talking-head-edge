@@ -1,20 +1,22 @@
 """
 完整优化管线对比：原始 MuseTalk（Teacher 全帧） vs 本方法（MATS + 蒸馏 Student）。
 
-输出两条视频 + FPS/加速比 + SSIM/PSNR，验证质量不降、速度明显提升。
+与 step2/demo_video.py 一致：同一套预处理数据（含 mask）、get_image_blending 合成、
+输出左右对比视频 + 两条单独视频 + FPS/加速比 + SSIM/PSNR。
 使用方式：
   cd $MUSE_ROOT
   PYTHONPATH=$MUSE_ROOT python $REPO/step3/distill/run_full_pipeline.py \\
       --student_ckpt exp_out/distill/distill_v1/student_unet_final.pth \\
       --student_config $REPO/step3/distill/configs/student_musetalk.json \\
-      --avatar_id avator_1 \\
+      --avatar_id yongen \\
       --num_frames 200 \\
       --threshold 0.15 --max_skip 2 \\
       --out_dir profile_results/full_pipeline \\
-      --audio data/audio/1.wav
+      --audio data/audio/yongen.wav
 """
 
 import argparse
+import copy
 import glob
 import json
 import os
@@ -36,6 +38,8 @@ if MUSE_ROOT not in sys.path:
 
 from musetalk.models.unet import PositionalEncoding
 from musetalk.utils.utils import load_all_model
+from musetalk.utils.preprocessing import read_imgs
+from musetalk.utils.blending import get_image_blending
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--student_ckpt",   type=str, required=True)
@@ -48,7 +52,7 @@ parser.add_argument("--version",        type=str, default="v15")
 parser.add_argument("--audio_feat_dir", type=str, default="dataset/distill/audio_feats")
 parser.add_argument("--out_dir",        type=str, default="profile_results/full_pipeline")
 parser.add_argument("--fps",            type=int, default=25)
-parser.add_argument("--audio",         type=str, default="", help="可选，合成时混入的音频 wav，便于观看")
+parser.add_argument("--audio",         type=str, default="", help="可选，合成时混入的音频 wav")
 args = parser.parse_args()
 
 os.chdir(MUSE_ROOT)
@@ -56,21 +60,33 @@ os.makedirs(args.out_dir, exist_ok=True)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 print("=" * 60)
-print("  对比：原始 MuseTalk vs MATS + Student（质量与速度）")
+print("  对比：原始 MuseTalk vs MATS + Student（与 demo_video 同流程）")
 print("=" * 60)
 
-# ==================== 加载预处理数据 ====================
-avatar_dir  = f"results/{args.version}/avatars/{args.avatar_id}"
-coord_path  = os.path.join(avatar_dir, "coords.pkl")
-input_dir   = os.path.join(avatar_dir, "full_imgs")
-latent_path = os.path.join(avatar_dir, "latents.pt")
+# ==================== 加载预处理数据（与 demo_video.py 一致：含 mask）====================
+avatar_path = f"results/{args.version}/avatars/{args.avatar_id}"
+if not os.path.exists(avatar_path):
+    print(f"  ✗ 预处理数据不存在: {avatar_path}")
+    sys.exit(1)
 
-coords_list = pickle.load(open(coord_path, "rb"))
-img_paths   = sorted(glob.glob(os.path.join(input_dir, "*.png")) +
-                     glob.glob(os.path.join(input_dir, "*.jpg")))
-input_img_list = [cv2.imread(p) for p in img_paths]
-latent_list    = torch.load(latent_path, map_location=device)
-print(f"  ✓ 预处理帧数: {len(input_img_list)}  latents: {len(latent_list)}")
+input_latent_list_cycle = torch.load(os.path.join(avatar_path, "latents.pt"), map_location=device)
+with open(os.path.join(avatar_path, "coords.pkl"), "rb") as f:
+    coord_list_cycle = pickle.load(f)
+with open(os.path.join(avatar_path, "mask_coords.pkl"), "rb") as f:
+    mask_coords_list_cycle = pickle.load(f)
+
+img_list = sorted(
+    glob.glob(os.path.join(avatar_path, "full_imgs", "*.[jpJP][pnPN]*[gG]")),
+    key=lambda x: int(os.path.splitext(os.path.basename(x))[0])
+)
+mask_list_files = sorted(
+    glob.glob(os.path.join(avatar_path, "mask", "*.[jpJP][pnPN]*[gG]")),
+    key=lambda x: int(os.path.splitext(os.path.basename(x))[0])
+)
+frame_list_cycle = read_imgs(img_list)
+mask_list_cycle = read_imgs(mask_list_files)
+cycle_len = len(frame_list_cycle)
+print(f"  ✓ 预处理帧数: {cycle_len}  latents: {len(input_latent_list_cycle)}")
 
 audio_feat_path = os.path.join(args.audio_feat_dir, f"{args.avatar_id}.pt")
 if not os.path.exists(audio_feat_path):
@@ -78,7 +94,7 @@ if not os.path.exists(audio_feat_path):
         f"找不到预计算音频特征: {audio_feat_path}\n请先运行 precompute_audio_feats.py"
     )
 audio_chunks = torch.load(audio_feat_path, map_location=device)
-num_frames   = min(args.num_frames, len(audio_chunks))
+num_frames = min(args.num_frames, len(audio_chunks))
 print(f"  ✓ 音频特征: 使用前 {num_frames} 帧")
 
 # ==================== 加载模型（VAE + Teacher + Student + PE）====================
@@ -102,23 +118,53 @@ teacher_params = sum(p.numel() for p in teacher_unet.parameters())
 student_params = sum(p.numel() for p in student_unet.parameters())
 print(f"  Teacher: {teacher_params/1e6:.1f}M 参数  Student: {student_params/1e6:.1f}M 参数  压缩比: {teacher_params/student_params:.1f}×")
 
-# ==================== 帧合成 ====================
-def decode_latent_to_face_bgr(latent_pred):
+# ==================== 帧合成（与 demo_video 一致：get_image_blending）====================
+def decode_latent_to_face(latent_pred):
+    if hasattr(vae, "decode_latents"):
+        recon = vae.decode_latents(latent_pred.to(dtype=vae.vae.dtype))
+        face = recon[0] if hasattr(recon, "__getitem__") else recon
+        if hasattr(face, "cpu"):
+            face = (face.permute(1, 2, 0).cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+            face = cv2.cvtColor(face, cv2.COLOR_RGB2BGR)
+        return face
     with torch.no_grad():
         img = vae.vae.decode(latent_pred / vae.vae.config.scaling_factor).sample
     img = (img.clamp(-1, 1) + 1) / 2 * 255
     img = img[0].permute(1, 2, 0).cpu().numpy().astype(np.uint8)
     return cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-def compose_frame_from_face(face_bgr, idx):
-    frame_idx = idx % len(input_img_list)
-    full = input_img_list[frame_idx].copy()
-    y1, y2, x1, x2 = coords_list[frame_idx]
-    w, h_box = max(1, x2 - x1), max(1, y2 - y1)
-    if w > 0 and h_box > 0 and full is not None:
-        patch = cv2.resize(face_bgr, (w, h_box))
-        full[y1:y2, x1:x2] = patch
-    return full
+def compose_frame(idx, res_face):
+    """与 demo_video 一致：bbox + mask + get_image_blending"""
+    bbox = coord_list_cycle[idx % cycle_len]
+    ori = copy.deepcopy(frame_list_cycle[idx % cycle_len])
+    x1, y1, x2, y2 = bbox
+    try:
+        res = cv2.resize(res_face.astype(np.uint8), (x2 - x1, y2 - y1))
+    except Exception:
+        return ori
+    mask = mask_list_cycle[idx % cycle_len]
+    mcbox = mask_coords_list_cycle[idx % cycle_len]
+    return get_image_blending(ori, res, bbox, mask, mcbox)
+
+def add_overlay(frame, lines, fps_val, skipped, color):
+    out = frame.copy()
+    h, w = out.shape[:2]
+    ov = out.copy()
+    cv2.rectangle(ov, (0, 0), (w, 62), (0, 0, 0), -1)
+    cv2.addWeighted(ov, 0.55, out, 0.45, 0, out)
+    for j, line in enumerate(lines):
+        cv2.putText(out, line, (8, 22 + j * 22), cv2.FONT_HERSHEY_DUPLEX, 0.65, color, 1, cv2.LINE_AA)
+    fps_str = f"{fps_val:.1f} FPS"
+    tw = cv2.getTextSize(fps_str, cv2.FONT_HERSHEY_DUPLEX, 0.75, 2)[0][0]
+    cv2.putText(out, fps_str, (w - tw - 8, 28), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 255, 128), 2, cv2.LINE_AA)
+    dot_c = (0, 80, 255) if skipped else (0, 220, 0)
+    cv2.circle(out, (w - 16, h - 16), 8, dot_c, -1)
+    cv2.putText(out, "SKIP" if skipped else "CALC", (w - 65, h - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.4, dot_c, 1, cv2.LINE_AA)
+    return out
+
+def rolling_fps(timings, i, win=20):
+    s = max(0, i - win + 1)
+    return min(1.0 / max(np.mean(timings[s : i + 1]), 1e-9), 9999)
 
 def ssim_psnr(a, b):
     """a, b: uint8 BGR [H,W,3]。用于本方法 vs 基线 画质对比。"""
@@ -150,7 +196,7 @@ baseline_frames = []
 baseline_timings = []
 
 for i in tqdm(range(num_frames), desc="Baseline"):
-    lat = latent_list[i % len(latent_list)].to(device).float()
+    lat = input_latent_list_cycle[i % cycle_len].to(device).float()
     if lat.dim() == 3:
         lat = lat.unsqueeze(0)
     af = audio_chunks[i].unsqueeze(0).to(device).float()
@@ -160,11 +206,11 @@ for i in tqdm(range(num_frames), desc="Baseline"):
     t0 = time.time()
     with torch.no_grad():
         pred = teacher_unet(lat, t_zero_teacher, encoder_hidden_states=af, return_dict=False)[0]
-    face_bgr = decode_latent_to_face_bgr(pred)
+    face_bgr = decode_latent_to_face(pred)
     if device == "cuda":
         torch.cuda.synchronize()
     elapsed = time.time() - t0
-    full_frame = compose_frame_from_face(face_bgr, i)
+    full_frame = compose_frame(i, face_bgr)
     baseline_frames.append(full_frame)
     baseline_timings.append(elapsed)
 
@@ -175,6 +221,7 @@ print(f"  基线 FPS: {fps_baseline:.1f}")
 print(f"\n[MATS + Student 推理] 阈值={args.threshold} max_skip={args.max_skip} 共 {num_frames} 帧")
 frames_out = []
 timings = []
+skip_flags = []
 skip_count = 0
 prev_lat = None
 cached_face_bgr = None
@@ -182,7 +229,7 @@ consec_skip = 0
 t_zero = torch.tensor([0], dtype=torch.long, device=device)
 
 for i in tqdm(range(num_frames), desc="MATS+Student"):
-    lat = latent_list[i % len(latent_list)].to(device).float()
+    lat = input_latent_list_cycle[i % cycle_len].to(device).float()
     if lat.dim() == 3:
         lat = lat.unsqueeze(0)
 
@@ -204,21 +251,24 @@ for i in tqdm(range(num_frames), desc="MATS+Student"):
         af = pe(af)
         with torch.no_grad():
             pred = student_unet(lat, t_zero, encoder_hidden_states=af, return_dict=False)[0]
-        face_bgr = decode_latent_to_face_bgr(pred)
+        face_bgr = decode_latent_to_face(pred)
         cached_face_bgr = face_bgr.copy()
         consec_skip = 0
+        skipped = False
     else:
         face_bgr = cached_face_bgr
         skip_count += 1
         consec_skip += 1
+        skipped = True
 
     if device == "cuda":
         torch.cuda.synchronize()
     elapsed = time.time() - t0
 
-    full_frame = compose_frame_from_face(face_bgr, i)
+    full_frame = compose_frame(i, face_bgr)
     frames_out.append(full_frame)
     timings.append(elapsed)
+    skip_flags.append(skipped)
     prev_lat = lat.clone()
 
 fps_ours = num_frames / sum(timings)
@@ -237,30 +287,70 @@ mean_ssim = float(np.mean(ssim_vals))
 mean_psnr = float(np.mean(psnr_vals))
 print(f"  SSIM: {mean_ssim:.4f}  PSNR: {mean_psnr:.2f} dB")
 
-# ==================== 写视频 ====================
-def write_video(frames, path, add_audio_path=None):
-    h, w = frames[0].shape[:2]
-    tmp = path.replace(".mp4", "_tmp.mp4")
-    wr = cv2.VideoWriter(tmp, cv2.VideoWriter_fourcc(*"mp4v"), args.fps, (w, h))
+# ==================== 合成左右对比视频 + 两条单独视频（与 demo_video 一致）====================
+def write_video_with_audio(frames, audio_path, out_path, fps):
+    tmp = out_path.replace(".mp4", "_tmp.mp4")
+    h_o, w_o = frames[0].shape[:2]
+    wr = cv2.VideoWriter(tmp, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w_o, h_o))
     for fr in frames:
         wr.write(fr)
     wr.release()
-    if add_audio_path and os.path.isfile(add_audio_path):
-        cmd = (f"ffmpeg -loglevel error -nostdin -y -i {tmp} -i {add_audio_path} "
-               f"-c:v libx264 -crf 20 -preset fast -c:a aac -b:a 128k -shortest {path}")
-        if subprocess.call(cmd, shell=True) == 0:
-            os.remove(tmp)
-        else:
-            os.rename(tmp, path)
+    cmd = (f"ffmpeg -loglevel error -nostdin -y -i {tmp} -i {audio_path} "
+           f"-c:v libx264 -crf 20 -preset fast -c:a aac -b:a 128k -shortest {out_path}")
+    ret = subprocess.call(cmd, shell=True)
+    if ret == 0:
+        os.remove(tmp)
     else:
-        os.rename(tmp, path)
+        os.rename(tmp, out_path)
 
+target_h = min(baseline_frames[0].shape[0], 540)
+
+def resize_h(f, h):
+    oh, ow = f.shape[:2]
+    nw = int(ow * h / oh)
+    return cv2.resize(f, (nw, h))
+
+comparison_frames = []
+for i in range(num_frames):
+    b_fps = rolling_fps(baseline_timings, i)
+    m_fps = rolling_fps(timings, i)
+    b = resize_h(baseline_frames[i], target_h)
+    m = resize_h(frames_out[i], target_h)
+    b = add_overlay(b, ["Baseline (MuseTalk)", "Full UNet every frame"], b_fps, False, (200, 200, 255))
+    m = add_overlay(m, [f"MATS+Student (thr={args.threshold:.2f})", f"Skip: {skip_flags[i]}"], m_fps, skip_flags[i], (200, 255, 200))
+    div = np.zeros((target_h, 4, 3), dtype=np.uint8)
+    div[:] = (80, 80, 80)
+    row = np.concatenate([b, div, m], axis=1)
+    bw = row.shape[1]
+    stat = np.zeros((30, bw, 3), dtype=np.uint8)
+    info = (f"Frame {i+1}/{num_frames}   "
+            f"Baseline {fps_baseline:.1f} FPS   "
+            f"MATS+Student {fps_ours:.1f} FPS   "
+            f"Speedup {speedup:.2f}x   "
+            f"Skip {skip_rate:.1%}")
+    cv2.putText(stat, info, (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 220, 180), 1, cv2.LINE_AA)
+    row = np.concatenate([row, stat], axis=0)
+    comparison_frames.append(row)
+
+comparison_mp4 = os.path.join(args.out_dir, "comparison_baseline_vs_MATS_Student.mp4")
 baseline_mp4 = os.path.join(args.out_dir, "baseline_musetalk.mp4")
-out_mp4 = os.path.join(args.out_dir, "full_pipeline_MATS_Student.mp4")
-write_video(baseline_frames, baseline_mp4, args.audio)
-write_video(frames_out, out_mp4, args.audio)
-print(f"  ✓ 基线视频: {baseline_mp4}")
-print(f"  ✓ 本方法视频: {out_mp4}")
+ours_mp4 = os.path.join(args.out_dir, "full_pipeline_MATS_Student.mp4")
+audio_path = args.audio if (args.audio and os.path.isfile(args.audio)) else None
+if audio_path:
+    write_video_with_audio(comparison_frames, audio_path, comparison_mp4, args.fps)
+    print(f"  ✓ 左右对比视频: {comparison_mp4}")
+    write_video_with_audio(baseline_frames, audio_path, baseline_mp4, args.fps)
+    write_video_with_audio(frames_out, audio_path, ours_mp4, args.fps)
+else:
+    for f, p in [(comparison_frames, comparison_mp4), (baseline_frames, baseline_mp4), (frames_out, ours_mp4)]:
+        wr = cv2.VideoWriter(p.replace(".mp4", "_tmp.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), args.fps, (f[0].shape[1], f[0].shape[0]))
+        for fr in f:
+            wr.write(fr)
+        wr.release()
+        os.rename(p.replace(".mp4", "_tmp.mp4"), p)
+    print(f"  ✓ 左右对比视频: {comparison_mp4}（无音轨）")
+print(f"  ✓ 单独基线: {baseline_mp4}")
+print(f"  ✓ 本方法: {ours_mp4}")
 
 result = {
     "baseline_fps": round(fps_baseline, 1),
@@ -287,7 +377,8 @@ print(f"""
   加速比:                {speedup:.2f}×
   质量（本方法 vs 基线）: SSIM={mean_ssim:.4f}  PSNR={mean_psnr:.2f} dB
   输出: {args.out_dir}/
-    - baseline_musetalk.mp4       （原始 MuseTalk）
-    - full_pipeline_MATS_Student.mp4 （本方法）
+    - comparison_baseline_vs_MATS_Student.mp4  （左右对比）
+    - baseline_musetalk.mp4                    （单独基线）
+    - full_pipeline_MATS_Student.mp4            （本方法）
 ======================================================================
 """)
