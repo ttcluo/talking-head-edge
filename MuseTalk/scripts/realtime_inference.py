@@ -342,6 +342,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    if args.version == "v15":
+        args.unet_config = "./models/musetalkV15/musetalk.json"
+        args.unet_model_path = "./models/musetalkV15/unet.pth"
+
     # Configure ffmpeg path
     if not fast_check_ffmpeg():
         print("Adding ffmpeg to PATH")

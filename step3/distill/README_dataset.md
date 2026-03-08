@@ -234,6 +234,9 @@ python scripts/realtime_inference.py \
     --inference_config $REPO/step3/distill/configs/realtime_yongen.yaml
 ```
 
+若报错 `FileNotFoundError: .../models/musetalk/musetalk.json`，说明当前 MuseTalk 未根据 `--version v15` 切换模型路径。请显式指定 v15 的 UNet：
+`--unet_config models/musetalkV15/musetalk.json --unet_model_path models/musetalkV15/unet.pth`
+
 若 `yongen` 目录已存在，脚本会交互询问是否重建，选 `n` 即跳过预处理只做推理；选 `y` 会重新生成。仅做预处理时可在推理开始前 Ctrl+C 退出。
 
 **2）预计算 yongen 的音频特征**
