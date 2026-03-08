@@ -122,7 +122,7 @@ python scripts/realtime_inference.py \
 **注意**：`realtime_inference` 会为每个 avatar 再跑一遍推理并写出一条结果视频；若只想做蒸馏数据，可跑完后忽略输出视频，只保留 `results/v15/avatars/` 下的 `latents.pt`。
 
 **耗时粗估**：每个 avatar 会做「抽帧 → 人脸/landmark → VAE 编码 → 写 mask/coords/latents」，视频越长越慢。约 **8～15 分钟/avatar**（与帧数、GPU 有关）。100 个 avatar 约 **15～25 小时**。若时间太长可：
-- **先做别的**：`Ctrl+C` 停掉，用少量 avatar（如 20）重新跑 `prepare_distill_data.py --max_avatars 20`，再生成新的 `realtime_distill.yaml` 和 `train_avatars.txt`，只跑 20 个约 **3～5 小时**；蒸馏用 20 个也够。
+- **先做别的**：`Ctrl+C` 停掉，用少量 avatar（如 20）重新跑 `prepare_distill_data.py --max_avatars 20`，再生成新的 `realtime_distill.yaml` 和 `train_avatars.txt`，只跑 20 个约 **3～5 小时**。**20 个 avatar 足够蒸馏**：研究计划中已验证用 **6 个 avatar × 500 帧 = 1500 样本** 即可 10000 步收敛到 SSIM=1.0、PSNR 69 dB vs Teacher；20 个 avatar（1 万样本量、更多说话人多样性）只会更稳。
 - **后台跑**：`nohup ... &` 或 `screen`/`tmux` 里跑，先去做论文/其他实验。
 
 ---
