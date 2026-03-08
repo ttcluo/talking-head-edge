@@ -40,8 +40,13 @@ def main(args):
     whisper = WhisperModel.from_pretrained(whisper_dir).to("cuda")
     whisper.eval()
 
-    with open(args.avatar_list) as f:
-        avatar_ids = [l.strip() for l in f if l.strip()]
+    if args.avatar_id:
+        avatar_ids = [args.avatar_id]
+        audio_override = {args.avatar_id: args.audio} if args.audio else {}
+    else:
+        with open(args.avatar_list) as f:
+            avatar_ids = [l.strip() for l in f if l.strip()]
+        audio_override = {}
 
     for avatar_id in avatar_ids:
         out_path = os.path.join(args.out_dir, f"{avatar_id}.pt")
@@ -49,13 +54,15 @@ def main(args):
             print(f"  ✓ {avatar_id}: 已存在，跳过")
             continue
 
-        # 找音频文件
-        vname = avatar_id.replace("avator_", "")
-        audio_path = os.path.join(args.audio_dir, f"{vname}.wav")
+        if avatar_id in audio_override:
+            audio_path = audio_override[avatar_id]
+        else:
+            vname = avatar_id.replace("avator_", "")
+            audio_path = os.path.join(args.audio_dir, f"{vname}.wav")
+            if not os.path.exists(audio_path):
+                audio_path = os.path.join(args.audio_dir, "yongen.wav")
         if not os.path.exists(audio_path):
-            audio_path = os.path.join(args.audio_dir, "yongen.wav")
-        if not os.path.exists(audio_path):
-            print(f"  ⚠ {avatar_id}: 找不到音频，跳过")
+            print(f"  ⚠ {avatar_id}: 找不到音频 {audio_path}，跳过")
             continue
 
         try:
@@ -86,7 +93,12 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--avatar_list", default="dataset/distill/train_avatars.txt")
+    parser.add_argument("--avatar_list", default="dataset/distill/train_avatars.txt",
+                        help="avatar 列表；若指定 --avatar_id 则忽略")
+    parser.add_argument("--avatar_id",   type=str, default="",
+                        help="单 avatar 模式，如 yongen；需配合 --audio 或 data/audio/<id>.wav")
+    parser.add_argument("--audio",       type=str, default="",
+                        help="单 avatar 时指定音频 wav 路径，如 data/audio/yongen.wav")
     parser.add_argument("--out_dir",     default="dataset/distill/audio_feats/")
     parser.add_argument("--audio_dir",   default="data/audio/")
     parser.add_argument("--whisper_dir", default="models/whisper/")

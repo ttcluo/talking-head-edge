@@ -217,6 +217,48 @@ python $REPO/step3/distill/run_full_pipeline.py \
   - `full_pipeline_results.json`：基线 FPS、本方法 FPS、**加速比**、**SSIM/PSNR（本方法 vs 基线）**
 - 终端会打印对比汇总：加速比与质量（SSIM/PSNR），便于判断质量是否不降、速度是否明显提升。
 
+### 用 yongen 视频跑对比（与 step2 实验一致）
+
+若用 **data/video/yongen.mp4**（与之前 MATS/demo 等实验一致），按下面做一次准备后即可用 yongen 跑完整管线对比。
+
+**1）预处理（若还没有 `results/v15/avatars/yongen/`）**
+
+在 `$MUSE_ROOT` 下：
+
+```bash
+PYTHONPATH=$MUSE_ROOT python scripts/realtime_inference.py \
+    --version v15 --preparation True \
+    --avatar_id yongen \
+    --video_path data/video/yongen.mp4
+```
+
+**2）预计算 yongen 的音频特征**
+
+```bash
+cd $MUSE_ROOT
+export PYTHONPATH=$MUSE_ROOT
+
+python $REPO/step3/distill/precompute_audio_feats.py \
+    --avatar_id yongen \
+    --audio data/audio/yongen.wav \
+    --out_dir dataset/distill/audio_feats/
+```
+
+**3）跑完整管线对比（yongen）**
+
+```bash
+python $REPO/step3/distill/run_full_pipeline.py \
+    --student_ckpt exp_out/distill/distill_v1/student_unet_final.pth \
+    --student_config $REPO/step3/distill/configs/student_musetalk.json \
+    --avatar_id yongen \
+    --num_frames 200 \
+    --threshold 0.15 --max_skip 2 \
+    --out_dir profile_results/full_pipeline \
+    --audio data/audio/yongen.wav
+```
+
+输出仍在 `profile_results/full_pipeline/`：`baseline_musetalk.mp4`、`full_pipeline_MATS_Student.mp4` 及 JSON 汇总。
+
 ---
 
 ## 六、目录结构小结
