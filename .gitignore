@@ -67,3 +67,15 @@ Thumbs.db
 logs/
 wandb/
 runs/
+
+# 其他
+*.zip
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.lzma
+*.tar.lz
+*.tar.lz4
+*.tar.zstd
+*.tar.zstd
