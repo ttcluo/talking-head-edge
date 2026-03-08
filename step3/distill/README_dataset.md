@@ -103,10 +103,11 @@ python step3/distill/prepare_distill_data.py \
 
 ## 三、在 MuseTalk 中跑 Avatar 预处理（生成 latents.pt）
 
-在 **MuseTalk 项目根** 执行（需已安装 MuseTalk 依赖、已下载 VAE/UNet 等模型）：
+在 **MuseTalk 项目根** 执行（需已安装 MuseTalk 依赖、已下载 VAE/UNet 等模型）。**必须设置 PYTHONPATH** 否则会报 `ModuleNotFoundError: No module named 'musetalk'`：
 
 ```bash
 cd $MUSE_ROOT
+export PYTHONPATH=$MUSE_ROOT
 
 # 使用上一步生成的配置，仅做 preparation（生成 results/v15/avatars/<id>/latents.pt）
 python scripts/realtime_inference.py \

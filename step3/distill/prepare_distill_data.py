@@ -100,8 +100,9 @@ def main():
             f.write(f"avator_{i}\n")
     print(f"已写入 {list_path}")
 
-    print("\n下一步（在 MuseTalk 项目根执行）:")
+    print("\n下一步（在 MuseTalk 项目根执行，需设置 PYTHONPATH）：")
     print(f"  cd {muse_root}")
+    print("  export PYTHONPATH=$PWD")
     print("  python scripts/realtime_inference.py \\")
     print("      --inference_config configs/inference/realtime_distill.yaml \\")
     print("      --unet_model_path models/musetalkV15/unet.pth \\")
