@@ -136,6 +136,40 @@ if args.num_frames > 0:
 whisper_chunks = whisper_chunks[:total_frames]
 print(f"  ✓ 帧数: {total_frames}")
 
+# ==================== 解析音频路径（用于合成带音轨视频）====================
+audio_path = args.audio
+if not audio_path or not os.path.exists(audio_path):
+    # 尝试从 avatar 源视频提取
+    info_path = os.path.join(avatar_path, "avator_info.json")
+    if os.path.exists(info_path):
+        import json
+        with open(info_path, encoding="utf-8") as f:
+            info = json.load(f)
+        video_path = info.get("video_path", "")
+        if video_path and os.path.exists(video_path):
+            audio_path = args.out.replace(".mp4", "_audio.wav")
+            if not os.path.exists(audio_path):
+                subprocess.call(
+                    f"ffmpeg -loglevel error -y -i {video_path} -vn -acodec pcm_s16le -ar 16000 -ac 1 {audio_path}",
+                    shell=True,
+                )
+            if os.path.exists(audio_path):
+                print(f"  ✓ 从源视频提取音频: {audio_path}")
+    if not audio_path or not os.path.exists(audio_path):
+        aid = args.avatar_id.replace("avator_", "")
+        for p in [f"data/audio/{args.avatar_id}.wav", f"data/audio/{aid}.wav"]:
+            if os.path.exists(p):
+                audio_path = p
+                break
+        if not audio_path or not os.path.exists(audio_path):
+            first_wav = next((f for f in glob.glob("data/audio/*.wav") or []), None)
+            audio_path = first_wav or ""
+    if not audio_path or not os.path.exists(audio_path):
+        print(f"  ⚠ 未找到音频文件，输出视频将无音轨。可指定 --audio 或确保 data/audio/ 下有对应 wav")
+        audio_path = None
+else:
+    audio_path = os.path.abspath(audio_path)
+
 # ==================== 工具函数 ====================
 def sync():
     if torch.cuda.is_available():
@@ -300,15 +334,15 @@ def write_video_with_audio(frames, audio_path, out_path, fps):
         os.rename(tmp, out_path)
 
 
-write_video_with_audio(comparison_frames, args.audio, args.out, args.fps)
+write_video_with_audio(comparison_frames, audio_path, args.out, args.fps)
 print(f"  ✓ 对比视频: {args.out}")
 
 base_dir = os.path.dirname(args.out)
 sd_path = os.path.join(base_dir, "vae_sd.mp4")
 taesd_path = os.path.join(base_dir, "vae_taesd.mp4")
-write_video_with_audio(sd_out, args.audio, sd_path, args.fps)
+write_video_with_audio(sd_out, audio_path, sd_path, args.fps)
 print(f"  ✓ 单独 SD VAE: {sd_path}")
-write_video_with_audio(taesd_out, args.audio, taesd_path, args.fps)
+write_video_with_audio(taesd_out, audio_path, taesd_path, args.fps)
 print(f"  ✓ 单独 TAESD: {taesd_path}")
 
 print(f"""
