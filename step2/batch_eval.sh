@@ -6,7 +6,8 @@
 #   PYTHONPATH=$MUSE_ROOT bash $REPO/step2/batch_eval.sh 2>&1 | tee profile_results/batch_eval.log
 
 set -e
-REPO="${REPO:-/data/luochuan/talking-head-edge/talking-head-edge}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO="${REPO:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 MUSE_ROOT="${MUSE_ROOT:-$(pwd)}"
 AUDIO="data/audio/yongen.wav"
 THRESHOLD=0.15

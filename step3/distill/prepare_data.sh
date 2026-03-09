@@ -14,7 +14,8 @@
 
 set -e
 
-REPO="${REPO:-/data/luochuan/talking-head-edge/talking-head-edge}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO="${REPO:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 MUSE_ROOT="${MUSE_ROOT:-$(pwd)}"
 DISTILL_DATA_DIR="./dataset/distill"
 
