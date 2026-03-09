@@ -24,7 +24,7 @@ outputs/
 *.mov
 
 # 模型权重（体积大，走其他渠道同步）
-models/
+# models/
 *.pth
 *.bin
 *.ckpt

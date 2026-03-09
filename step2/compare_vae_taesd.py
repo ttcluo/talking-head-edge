@@ -11,6 +11,11 @@ FP32 不变，评估 TAESD 替换的可行性。
       --audio data/audio/avator_1.wav \
       --num_frames 50 \
       --out_dir profile_results/vae_taesd_compare
+
+  服务器无法访问 HuggingFace 时：
+  1. 本地执行: python step2/download_taesd.py --out_dir ./taesd_cache
+  2. scp -r taesd_cache root@GPU1:$MUSE_ROOT/models/
+  3. 加参数: --taesd_dir models/taesd_cache
 """
 
 import argparse
@@ -37,6 +42,8 @@ parser.add_argument("--num_frames", type=int, default=50)
 parser.add_argument("--version", type=str, default="v15")
 parser.add_argument("--out_dir", type=str, default="profile_results/vae_taesd_compare")
 parser.add_argument("--save_frames", action="store_true", help="保存左右对比帧")
+parser.add_argument("--taesd_dir", type=str, default="",
+                    help="TAESD 本地目录（服务器无法访问 HF 时，先在本地运行 download_taesd.py 下载后 scp 到服务器）")
 args = parser.parse_args()
 
 os.chdir(MUSE_ROOT)
@@ -126,17 +133,24 @@ vae_sd.vae = vae_sd.vae.to(device)
 vae_sd.vae.eval()
 sd_scaling = getattr(vae_sd.vae.config, "scaling_factor", 0.18215)
 
-# TAESD
+# TAESD（优先本地目录，服务器无法访问 HF 时使用）：
 try:
     from diffusers import AutoencoderTiny
-    taesd = AutoencoderTiny.from_pretrained("madebyollin/taesd").to(device, dtype=weight_dtype)
+    if args.taesd_dir and os.path.isdir(args.taesd_dir):
+        taesd = AutoencoderTiny.from_pretrained(args.taesd_dir, local_files_only=True).to(device, dtype=weight_dtype)
+        print(f"  ✓ TAESD 加载成功 (本地: {args.taesd_dir})")
+    else:
+        taesd = AutoencoderTiny.from_pretrained("madebyollin/taesd").to(device, dtype=weight_dtype)
+        print(f"  ✓ TAESD 加载成功 (madebyollin/taesd)")
     taesd.eval()
     TAESD_OK = True
-    print(f"  ✓ TAESD 加载成功 (madebyollin/taesd)")
 except Exception as e:
     TAESD_OK = False
     print(f"  ✗ TAESD 加载失败: {e}")
-    print("    请安装: pip install diffusers>=0.25 并确保可访问 HuggingFace")
+    if not args.taesd_dir:
+        print("    服务器无法访问 HuggingFace 时，请在本地执行:")
+        print("      python ../step2/download_taesd.py --out_dir ./taesd_cache")
+        print("    然后 scp -r taesd_cache user@server:/path/ 并加 --taesd_dir /path/taesd_cache")
 
 # ==================== 收集 UNet 输出 ====================
 print(f"\n[收集 UNet 输出，{num_frames} 帧]")
