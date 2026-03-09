@@ -1,15 +1,17 @@
 """
-MATS 视频对比 Demo（蒸馏 Student 版）
+MATS 视频对比 Demo（4 路对比）
 
-与 demo_video.py 完全相同的流程，仅将 UNet 替换为蒸馏 Student。
-用于验证：在已验证的 demo 流程下，Student 的唇形表现。
+4 种模式：基线(Teacher全帧) | MATS(Teacher+缓存) | Student(全帧) | MATS+Student
+输出：4 条单独视频 + 2×2 对比视频
 
 流程：
-  1. 加载 MuseTalk 预处理数据（与 demo_video 一致）
-  2. 提取 Whisper 音频特征（从 wav 实时提取，与 demo_video 一致）
-  3. 基线推理（Student 全帧）
-  4. MATS 推理（Student + 像素帧缓存）
-  5. 生成左右对比视频
+  1. 加载 MuseTalk 预处理数据
+  2. 提取 Whisper 音频特征（从 wav 实时提取）
+  3. 基线：Teacher 全帧
+  4. MATS：Teacher + 像素帧缓存
+  5. Student：Student 全帧
+  6. MATS+Student：Student + 像素帧缓存
+  7. 生成 2×2 对比视频
 
 使用方法：
     cd $MUSE_ROOT
@@ -61,7 +63,7 @@ os.makedirs(os.path.dirname(args.out), exist_ok=True)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 print("=" * 65)
-print("  MATS 视频对比 Demo（蒸馏 Student 版，与 demo_video 同流程）")
+print("  MATS 视频对比 Demo（4 路：基线 | MATS | Student | MATS+Student）")
 print("=" * 65)
 
 # ==================== 加载预处理数据（与 demo_video 完全一致）====================
@@ -89,7 +91,7 @@ mask_list_cycle = read_imgs(mask_list_files)
 cycle_len = len(frame_list_cycle)
 print(f"  ✓ 预处理帧数: {cycle_len}")
 
-# ==================== 加载模型（VAE + Student + PE，与 demo_video 同来源）====================
+# ==================== 加载模型（VAE + Teacher + Student + PE）====================
 print("\n[加载模型]")
 from transformers import WhisperModel
 from musetalk.utils.utils import load_all_model
@@ -99,9 +101,9 @@ vae, teacher_wrapper, pe_module = load_all_model(
     unet_model_path="models/musetalkV15/unet.pth",
     unet_config="models/musetalkV15/musetalk.json",
 )
+teacher_unet = teacher_wrapper.model.to(device).float().eval()
 vae.vae = vae.vae.to(device).float()
 pe = pe_module.to(device)
-weight_dtype = torch.float32
 
 with open(args.student_config) as f:
     student_cfg = {k: v for k, v in json.load(f).items() if not k.startswith("_")}
@@ -115,7 +117,7 @@ audio_processor = AudioProcessor(feature_extractor_path="models/whisper")
 whisper = WhisperModel.from_pretrained("models/whisper")
 whisper = whisper.to(device=device, dtype=torch.float32).eval()
 whisper.requires_grad_(False)
-print("  ✓ VAE + Student + PE + Whisper 加载完成")
+print("  ✓ VAE + Teacher + Student + PE + Whisper 加载完成")
 
 # ==================== 提取音频特征（与 demo_video 完全一致：从 wav 实时提取）====================
 print(f"\n[提取音频特征] {args.audio}")
@@ -175,8 +177,8 @@ def rolling_fps(timings, i, win=20):
     s = max(0, i - win + 1)
     return min(1.0 / max(np.mean(timings[s:i+1]), 1e-9), 9999)
 
-# ==================== 基线推理（Student 全帧，与 demo_video 结构一致）====================
-print(f"\n[基线推理：Student 全帧，{total_frames} 帧]")
+# ==================== 基线推理（Teacher 全帧，原始 MuseTalk）====================
+print(f"\n[基线推理：Teacher 全帧，{total_frames} 帧]")
 baseline_out = []
 baseline_t = []
 
@@ -196,7 +198,7 @@ with torch.no_grad():
 
         sync()
         t0 = time.time()
-        pred = student_unet(lat_batch, timesteps, encoder_hidden_states=audio_feat, return_dict=False)[0]
+        pred = teacher_unet(lat_batch, timesteps, encoder_hidden_states=audio_feat, return_dict=False)[0]
         pred = pred.to(dtype=vae.vae.dtype)
         recon = vae.decode_latents(pred)
         sync()
@@ -218,40 +220,133 @@ with torch.no_grad():
 fps_base = total_frames / sum(baseline_t)
 print(f"  基线完成：{fps_base:.1f} FPS")
 
-# ==================== MATS 推理（Student + 像素帧缓存，与 demo_video 一致）====================
-print(f"\n[MATS 推理：Student + 像素帧缓存，阈值={args.threshold}，max_skip={args.max_skip}]")
-mats_out = []
-mats_t = []
-skip_flags = []
+# ==================== MATS 推理（Teacher + 像素帧缓存）====================
+# 复用 demo_video 的 MATS 逻辑，用 Teacher
+print(f"\n[MATS 推理：Teacher + 像素帧缓存，阈值={args.threshold}，max_skip={args.max_skip}]")
+mats_teacher_out = []
+mats_teacher_t = []
+skip_flags_teacher = []
 prev_lat = None
 cached_pixel = None
-skip_count = 0
+skip_count_t = 0
+consec_skip = 0
+
+with torch.no_grad():
+    for i in range(total_frames):
+        lat = input_latent_list_cycle[i % cycle_len].to(device=device, dtype=torch.float32)
+        if prev_lat is not None:
+            motion = float((lat.float() - prev_lat.float()).norm() /
+                          (prev_lat.float().norm() + 1e-6))
+        else:
+            motion = 999.0
+        max_skip_hit = (args.max_skip > 0 and consec_skip >= args.max_skip)
+        need_compute = (motion >= args.threshold or cached_pixel is None or max_skip_hit)
+        sync()
+        t0 = time.time()
+        if need_compute:
+            wc = whisper_chunks[i]
+            w = wc.cpu().unsqueeze(0).to(device) if isinstance(wc, torch.Tensor) \
+                else torch.from_numpy(np.array([wc])).to(device)
+            audio_feat = pe(w)
+            pred = teacher_unet(lat.unsqueeze(0) if lat.dim() == 3 else lat, timesteps,
+                               encoder_hidden_states=audio_feat, return_dict=False)[0]
+            pred = pred.to(dtype=vae.vae.dtype)
+            faces = vae.decode_latents(pred)
+            face = faces[0]
+            if hasattr(face, "permute"):
+                face = (face.permute(1, 2, 0).cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+                face = cv2.cvtColor(face, cv2.COLOR_RGB2BGR)
+            cached_pixel = face.copy()
+            skipped = False
+            consec_skip = 0
+        else:
+            face = cached_pixel
+            skipped = True
+            skip_count_t += 1
+            consec_skip += 1
+        sync()
+        elapsed = time.time() - t0
+        composed = compose_frame(i, face)
+        mats_teacher_out.append(composed)
+        mats_teacher_t.append(elapsed)
+        skip_flags_teacher.append(skipped)
+        prev_lat = lat.clone()
+        if (i + 1) % 50 == 0 or (i + 1) == total_frames:
+            print(f"  [{i+1}/{total_frames}] {1/np.mean(mats_teacher_t[-20:]):.1f} FPS  "
+                  f"跳过率={skip_count_t/(i+1):.1%}")
+
+fps_mats_teacher = total_frames / sum(mats_teacher_t)
+print(f"  MATS(Teacher) 完成：{fps_mats_teacher:.1f} FPS")
+
+# ==================== Student 全帧推理 ====================
+print(f"\n[Student 全帧推理，{total_frames} 帧]")
+student_out = []
+student_t = []
+
+with torch.no_grad():
+    for i in range(0, total_frames, args.batch_size):
+        bs = min(args.batch_size, total_frames - i)
+        chunk_slice = whisper_chunks[i:i+bs]
+        if isinstance(chunk_slice[0], torch.Tensor):
+            w_batch = torch.stack([c.cpu() for c in chunk_slice]).to(device)
+        else:
+            w_batch = torch.from_numpy(np.stack(chunk_slice)).to(device)
+        lat_batch = torch.cat(
+            [input_latent_list_cycle[j % cycle_len] for j in range(i, i+bs)], 0
+        ).to(device=device, dtype=torch.float32)
+        audio_feat = pe(w_batch)
+        sync()
+        t0 = time.time()
+        pred = student_unet(lat_batch, timesteps, encoder_hidden_states=audio_feat, return_dict=False)[0]
+        pred = pred.to(dtype=vae.vae.dtype)
+        recon = vae.decode_latents(pred)
+        sync()
+        elapsed = time.time() - t0
+        per_frame = elapsed / bs
+        for k, face in enumerate(recon):
+            idx = i + k
+            if hasattr(face, "permute"):
+                face = (face.permute(1, 2, 0).cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+                face = cv2.cvtColor(face, cv2.COLOR_RGB2BGR)
+            composed = compose_frame(idx, face)
+            student_out.append(composed)
+            student_t.append(per_frame)
+        if (i + bs) % 50 < args.batch_size or (i + bs) >= total_frames:
+            print(f"  [{i+bs}/{total_frames}] {1/per_frame:.1f} FPS")
+
+fps_student = total_frames / sum(student_t)
+print(f"  Student 全帧完成：{fps_student:.1f} FPS")
+
+# ==================== MATS + Student 推理 ====================
+print(f"\n[MATS + Student 推理，阈值={args.threshold}，max_skip={args.max_skip}]")
+mats_student_out = []
+mats_student_t = []
+skip_flags_student = []
+prev_lat = None
+cached_pixel = None
+skip_count_s = 0
 unet_count = 0
 consec_skip = 0
 
 with torch.no_grad():
     for i in range(total_frames):
         lat = input_latent_list_cycle[i % cycle_len].to(device=device, dtype=torch.float32)
-
         if prev_lat is not None:
             motion = float((lat.float() - prev_lat.float()).norm() /
                           (prev_lat.float().norm() + 1e-6))
         else:
             motion = 999.0
-
         max_skip_hit = (args.max_skip > 0 and consec_skip >= args.max_skip)
         need_compute = (motion >= args.threshold or cached_pixel is None or max_skip_hit)
-
         sync()
         t0 = time.time()
-
         if need_compute:
             wc = whisper_chunks[i]
             w = wc.cpu().unsqueeze(0).to(device) if isinstance(wc, torch.Tensor) \
                 else torch.from_numpy(np.array([wc])).to(device)
             audio_feat = pe(w)
             pred = student_unet(lat.unsqueeze(0) if lat.dim() == 3 else lat, timesteps,
-                                encoder_hidden_states=audio_feat, return_dict=False)[0]
+                               encoder_hidden_states=audio_feat, return_dict=False)[0]
             pred = pred.to(dtype=vae.vae.dtype)
             faces = vae.decode_latents(pred)
             face = faces[0]
@@ -265,25 +360,22 @@ with torch.no_grad():
         else:
             face = cached_pixel
             skipped = True
-            skip_count += 1
+            skip_count_s += 1
             consec_skip += 1
-
         sync()
         elapsed = time.time() - t0
-
         composed = compose_frame(i, face)
-        mats_out.append(composed)
-        mats_t.append(elapsed)
-        skip_flags.append(skipped)
+        mats_student_out.append(composed)
+        mats_student_t.append(elapsed)
+        skip_flags_student.append(skipped)
         prev_lat = lat.clone()
-
         if (i + 1) % 50 == 0 or (i + 1) == total_frames:
-            print(f"  [{i+1}/{total_frames}] {1/np.mean(mats_t[-20:]):.1f} FPS  "
-                  f"跳过率={skip_count/(i+1):.1%}")
+            print(f"  [{i+1}/{total_frames}] {1/np.mean(mats_student_t[-20:]):.1f} FPS  "
+                  f"跳过率={skip_count_s/(i+1):.1%}")
 
-fps_mats = total_frames / sum(mats_t)
-skip_rate = skip_count / total_frames
-print(f"  MATS 完成：{fps_mats:.1f} FPS  跳过率={skip_rate:.1%}")
+fps_mats_student = total_frames / sum(mats_student_t)
+skip_rate = skip_count_s / total_frames
+print(f"  MATS+Student 完成：{fps_mats_student:.1f} FPS  跳过率={skip_rate:.1%}")
 
 # ==================== SSIM / PSNR ====================
 def _ssim_psnr(img1, img2, win_size=11, sigma=1.5):
@@ -304,9 +396,9 @@ def _ssim_psnr(img1, img2, win_size=11, sigma=1.5):
                ((mu1_sq + mu2_sq + C1) * (sig1 + sig2 + C2))
     return float(ssim_map.mean()), float(psnr)
 
-print(f"\n[质量评估：SSIM / PSNR（baseline vs MATS，均用 Student）]")
+print(f"\n[质量评估：SSIM / PSNR（MATS+Student vs 基线）]")
 ssim_vals, psnr_vals = [], []
-for b_f, m_f in zip(baseline_out, mats_out):
+for b_f, m_f in zip(baseline_out, mats_student_out):
     s, p = _ssim_psnr(b_f, m_f)
     ssim_vals.append(s)
     psnr_vals.append(p)
@@ -314,42 +406,50 @@ mean_ssim = float(np.mean(ssim_vals))
 mean_psnr = float(np.mean(psnr_vals))
 print(f"  SSIM={mean_ssim:.4f}  PSNR={mean_psnr:.2f} dB")
 
-# ==================== 合成对比视频 ====================
-print(f"\n[合成对比视频]")
-speedup = fps_mats / fps_base
-
-target_h = min(baseline_out[0].shape[0], 540)
+# ==================== 合成 2×2 对比视频 ====================
+print(f"\n[合成 2×2 对比视频]")
+target_h = min(baseline_out[0].shape[0], 360)
 
 def resize_h(f, h):
     oh, ow = f.shape[:2]
     nw = int(ow * h / oh)
     return cv2.resize(f, (nw, h))
 
+def add_label(f, label, color):
+    out = f.copy()
+    cv2.putText(out, label, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1, cv2.LINE_AA)
+    return out
+
 comparison_frames = []
 for i in range(total_frames):
-    b_fps = rolling_fps(baseline_t, i)
-    m_fps = rolling_fps(mats_t, i)
     b = resize_h(baseline_out[i], target_h)
-    m = resize_h(mats_out[i], target_h)
-    b = add_overlay(b, ["Baseline (Student 全帧)", "Student every frame"],
-                    b_fps, False, (200, 200, 255))
-    m = add_overlay(m, [f"MATS (thr={args.threshold:.2f})",
-                        f"Skip: {skip_flags[i]}"],
-                    m_fps, skip_flags[i], (200, 255, 200))
-    div = np.zeros((target_h, 4, 3), dtype=np.uint8)
-    div[:] = (80, 80, 80)
-    row = np.concatenate([b, div, m], axis=1)
-    bw = row.shape[1]
-    stat = np.zeros((30, bw, 3), dtype=np.uint8)
-    info = (f"Frame {i+1}/{total_frames}   "
-            f"Baseline {fps_base:.1f} FPS   "
-            f"MATS {fps_mats:.1f} FPS   "
-            f"Speedup {speedup:.2f}x   "
-            f"Skip {skip_rate:.1%}")
-    cv2.putText(stat, info, (8, 20), cv2.FONT_HERSHEY_SIMPLEX,
-                0.45, (180, 220, 180), 1, cv2.LINE_AA)
-    row = np.concatenate([row, stat], axis=0)
-    comparison_frames.append(row)
+    mt = resize_h(mats_teacher_out[i], target_h)
+    s = resize_h(student_out[i], target_h)
+    ms = resize_h(mats_student_out[i], target_h)
+    b = add_label(add_overlay(b, ["Baseline", "Teacher 全帧"], rolling_fps(baseline_t, i), False, (200, 200, 255)), "1.Baseline", (200, 200, 255))
+    mt = add_label(add_overlay(mt, ["MATS", f"Skip:{skip_flags_teacher[i]}"], rolling_fps(mats_teacher_t, i), skip_flags_teacher[i], (200, 255, 200)), "2.MATS(Teacher)", (200, 255, 200))
+    s = add_label(add_overlay(s, ["Student", "全帧"], rolling_fps(student_t, i), False, (255, 200, 200)), "3.Student", (255, 200, 200))
+    ms = add_label(add_overlay(ms, ["MATS+Student", f"Skip:{skip_flags_student[i]}"], rolling_fps(mats_student_t, i), skip_flags_student[i], (255, 255, 200)), "4.MATS+Student", (255, 255, 200))
+    # 统一宽度
+    w_target = b.shape[1]
+    mt = cv2.resize(mt, (w_target, target_h))
+    s = cv2.resize(s, (w_target, target_h))
+    ms = cv2.resize(ms, (w_target, target_h))
+    div_v = np.zeros((target_h, 4, 3), dtype=np.uint8)
+    div_v[:] = (60, 60, 60)
+    div_h = np.zeros((4, w_target * 2 + 4, 3), dtype=np.uint8)
+    div_h[:] = (60, 60, 60)
+    row1 = np.concatenate([b, div_v, mt], axis=1)
+    row2 = np.concatenate([s, div_v, ms], axis=1)
+    grid = np.concatenate([row1, div_h, row2], axis=0)
+    stat = np.zeros((28, grid.shape[1], 3), dtype=np.uint8)
+    stat[:] = (40, 40, 40)
+    info = (f"Frame {i+1}/{total_frames}  "
+            f"Baseline {fps_base:.1f}  MATS(T) {fps_mats_teacher:.1f}  "
+            f"Student {fps_student:.1f}  MATS+S {fps_mats_student:.1f} FPS")
+    cv2.putText(stat, info, (8, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 220, 180), 1, cv2.LINE_AA)
+    grid = np.concatenate([grid, stat], axis=0)
+    comparison_frames.append(grid)
 
 def write_video_with_audio(frames, audio_path, out_path, fps):
     tmp = out_path.replace(".mp4", "_tmp.mp4")
@@ -368,23 +468,30 @@ def write_video_with_audio(frames, audio_path, out_path, fps):
     else:
         os.rename(tmp, out_path)
 
-write_video_with_audio(comparison_frames, args.audio, args.out, args.fps)
-print(f"\n  ✓ 对比视频: {args.out}")
-
 base_dir = os.path.dirname(args.out)
-baseline_path = os.path.join(base_dir, "baseline_student.mp4")
-mats_path = os.path.join(base_dir, "mats_student.mp4")
+write_video_with_audio(comparison_frames, args.audio, args.out, args.fps)
+print(f"\n  ✓ 2×2 对比视频: {args.out}")
+
+baseline_path = os.path.join(base_dir, "1_baseline_musetalk.mp4")
+mats_teacher_path = os.path.join(base_dir, "2_mats_teacher.mp4")
+student_path = os.path.join(base_dir, "3_student_full.mp4")
+mats_student_path = os.path.join(base_dir, "4_mats_student.mp4")
 write_video_with_audio(baseline_out, args.audio, baseline_path, args.fps)
-print(f"  ✓ 单独基线: {baseline_path}")
-write_video_with_audio(mats_out, args.audio, mats_path, args.fps)
-print(f"  ✓ 单独MATS: {mats_path}")
+write_video_with_audio(mats_teacher_out, args.audio, mats_teacher_path, args.fps)
+write_video_with_audio(student_out, args.audio, student_path, args.fps)
+write_video_with_audio(mats_student_out, args.audio, mats_student_path, args.fps)
+print(f"  ✓ 1. 基线: {baseline_path}")
+print(f"  ✓ 2. MATS(Teacher): {mats_teacher_path}")
+print(f"  ✓ 3. Student: {student_path}")
+print(f"  ✓ 4. MATS+Student: {mats_student_path}")
 print(f"""
 ======================================================================
-  Demo 汇总（Student 版）
+  Demo 汇总（4 路对比）
 ======================================================================
-  基线（Student 全帧）：{fps_base:.1f} FPS
-  MATS（Student）：{fps_mats:.1f} FPS  (加速 {speedup:.2f}×)
-  跳过率：{skip_rate:.1%}  (UNet 实际调用 {unet_count}/{total_frames} 帧)
-  SSIM：{mean_ssim:.4f}  PSNR：{mean_psnr:.2f} dB
-  输出：{args.out}
+  1. 基线（Teacher 全帧）：{baseline_path}  {fps_base:.1f} FPS
+  2. MATS（Teacher+缓存）：{mats_teacher_path}  {fps_mats_teacher:.1f} FPS
+  3. Student（全帧）：{student_path}  {fps_student:.1f} FPS
+  4. MATS+Student：{mats_student_path}  {fps_mats_student:.1f} FPS  跳过率 {skip_rate:.1%}
+  2×2 对比：{args.out}
+  质量（MATS+Student vs 基线）：SSIM={mean_ssim:.4f}  PSNR={mean_psnr:.2f} dB
 """)
