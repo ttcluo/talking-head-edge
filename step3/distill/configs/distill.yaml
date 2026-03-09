@@ -17,7 +17,7 @@ audio_feat_dir: "dataset/distill/audio_feats"   # 由 precompute_audio_feats.py 
 samples_per_avatar: 500
 
 data:
-  train_bs:   16
+  train_bs:   8    # 6 卡时每卡约 1 样本，避免 L_lip 的 VAE decode OOM
   num_workers: 4
 
 # ========== 蒸馏损失权重（嘴型同步优先）==========
@@ -36,7 +36,7 @@ feat_distill_layers:
 
 # ========== 优化器 ==========
 solver:
-  gradient_accumulation_steps: 2
+  gradient_accumulation_steps: 4   # 有效 batch=8×4=32，弥补 train_bs 减小
   mixed_precision: 'fp16'
   gradient_checkpointing: True
   max_train_steps: 10000
