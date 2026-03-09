@@ -19,18 +19,51 @@ import sys
 
 def main():
     parser = argparse.ArgumentParser(description="准备蒸馏数据：视频列表 → 配置 + 抽音频 + train_avatars.txt")
-    parser.add_argument("--video_dir", required=True, help="放 MP4 的目录（如 HDTF source）")
+    parser.add_argument("--video_dir", help="放 MP4 的目录（如 HDTF source）；--from_existing 时不需要")
     parser.add_argument("--muse_root", required=True, help="MuseTalk 项目根目录")
-    parser.add_argument("--max_avatars", type=int, default=20, help="最多使用多少个视频（默认 20）")
+    parser.add_argument("--max_avatars", type=int, default=20, help="最多使用多少个视频/avatar（默认 20）")
     parser.add_argument("--skip_audio", action="store_true", help="不抽音频，仅生成配置与 train_avatars.txt")
+    parser.add_argument("--from_existing", action="store_true",
+                        help="从已有 results/v15/avatars/ 扫描 avator_*，生成 train_avatars.txt（无需 video_dir）")
     args = parser.parse_args()
 
-    video_dir = os.path.abspath(args.video_dir)
     muse_root = os.path.abspath(args.muse_root)
+    os.makedirs(muse_root, exist_ok=True)
+
+    if args.from_existing:
+        avatar_base = os.path.join(muse_root, "results", "v15", "avatars")
+        if not os.path.isdir(avatar_base):
+            print(f"错误: avatar 目录不存在: {avatar_base}")
+            sys.exit(1)
+        avatars = sorted(
+            [d for d in os.listdir(avatar_base) if d.startswith("avator_") and os.path.isdir(os.path.join(avatar_base, d))],
+            key=lambda x: int(x.replace("avator_", "")) if x.replace("avator_", "").isdigit() else 999999,
+        )
+        avatars = avatars[: args.max_avatars]
+        if not avatars:
+            print(f"错误: 在 {avatar_base} 下未找到 avator_*")
+            sys.exit(1)
+        print(f"从已有目录扫描到 {len(avatars)} 个 avatar")
+        distill_dir = os.path.join(muse_root, "dataset", "distill")
+        os.makedirs(distill_dir, exist_ok=True)
+        list_path = os.path.join(distill_dir, "train_avatars.txt")
+        with open(list_path, "w", encoding="utf-8") as f:
+            for a in avatars:
+                f.write(f"{a}\n")
+        print(f"已写入 {list_path}")
+        print("\n下一步：预计算音频特征，然后启动蒸馏训练")
+        print(f"  cd {muse_root} && PYTHONPATH=$PWD python $REPO/step3/distill/precompute_audio_feats.py \\")
+        print(f"      --avatar_list {list_path}")
+        print(f"  accelerate launch --num_processes 4 $REPO/step3/distill/train_distill.py \\")
+        print(f"      --config $REPO/step3/distill/configs/distill.yaml \\")
+        print(f"      --student_config $REPO/step3/distill/configs/student_musetalk.json \\")
+        print(f"      --avatar_list {list_path}")
+        return
+
+    video_dir = os.path.abspath(args.video_dir)
     if not os.path.isdir(video_dir):
         print(f"错误: 视频目录不存在: {video_dir}")
         sys.exit(1)
-    os.makedirs(muse_root, exist_ok=True)
 
     # 扫描 MP4，按文件名排序
     videos = sorted(
