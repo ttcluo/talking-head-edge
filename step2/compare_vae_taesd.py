@@ -235,10 +235,11 @@ if args.save_frames and TAESD_OK:
     frames_dir = os.path.join(args.out_dir, "frames")
     os.makedirs(frames_dir, exist_ok=True)
     for i in range(min(20, num_frames)):
-        side = np.hstack([frames_sd[i], frames_taesd[i]])
-        cv2.putText(side, "SD VAE", (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
-        cv2.putText(side, "TAESD", (264, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
-        cv2.imwrite(os.path.join(frames_dir, f"{i:04d}.png"), cv2.cvtColor(side, cv2.COLOR_RGB2BGR))
+        side = np.ascontiguousarray(np.hstack([frames_sd[i], frames_taesd[i]]))
+        side_bgr = cv2.cvtColor(side, cv2.COLOR_RGB2BGR)
+        cv2.putText(side_bgr, "SD VAE", (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
+        cv2.putText(side_bgr, "TAESD", (264, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
+        cv2.imwrite(os.path.join(frames_dir, f"{i:04d}.png"), side_bgr)
     print(f"  对比帧已保存: {frames_dir}/")
 
 # ==================== 总结 ====================
