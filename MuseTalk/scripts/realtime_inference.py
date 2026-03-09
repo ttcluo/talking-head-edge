@@ -87,25 +87,22 @@ class Avatar:
     def init(self):
         if self.preparation:
             if os.path.exists(self.avatar_path):
-                # 已创建好的直接跳过，加载已有数据（不交互询问）
-                print(f"  {self.avatar_id} 已存在，跳过预处理，加载已有数据")
-                self.input_latent_list_cycle = torch.load(self.latents_out_path)
-                with open(self.coords_path, 'rb') as f:
-                    self.coord_list_cycle = pickle.load(f)
-                input_img_list = glob.glob(os.path.join(self.full_imgs_path, '*.[jpJP][pnPN]*[gG]'))
-                input_img_list = sorted(input_img_list, key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
-                self.frame_list_cycle = read_imgs(input_img_list)
-                with open(self.mask_coords_path, 'rb') as f:
-                    self.mask_coords_list_cycle = pickle.load(f)
-                input_mask_list = glob.glob(os.path.join(self.mask_out_path, '*.[jpJP][pnPN]*[gG]'))
-                input_mask_list = sorted(input_mask_list, key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
-                self.mask_list_cycle = read_imgs(input_mask_list)
+                # 已创建好的直接跳过：不预处理、不推理，避免已完成的 avatar 再跑一遍
+                print(f"  {self.avatar_id} 已存在，跳过（预处理与推理）")
+                self.skip_inference = True
+                self.input_latent_list_cycle = []
+                self.coord_list_cycle = []
+                self.frame_list_cycle = []
+                self.mask_coords_list_cycle = []
+                self.mask_list_cycle = []
             else:
+                self.skip_inference = False
                 print("*********************************")
                 print(f"  creating avator: {self.avatar_id}")
                 print("*********************************")
                 osmakedirs([self.avatar_path, self.full_imgs_path, self.video_out_path, self.mask_out_path])
                 self.prepare_material()
+                self.skip_inference = False
         else:
             if not os.path.exists(self.avatar_path):
                 print(f"{self.avatar_id} does not exist, you should set preparation to True")
@@ -416,6 +413,9 @@ if __name__ == "__main__":
             bbox_shift=bbox_shift,
             batch_size=args.batch_size,
             preparation=data_preparation)
+
+        if getattr(avatar, "skip_inference", False):
+            continue
 
         audio_clips = inference_config[avatar_id]["audio_clips"]
         for audio_num, audio_path in audio_clips.items():
