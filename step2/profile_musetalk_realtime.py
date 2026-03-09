@@ -7,9 +7,9 @@ MuseTalk 真实推理链路 Profiling
 无 VAE encode（latent 来自预处理缓存）。
 精确测量各模块耗时，分析推理性能瓶颈。
 
-用法：
+用法（在 MuseTalk 目录下执行，项目结构：项目根/MuseTalk、项目根/step2/）：
   cd $MUSE_ROOT
-  PYTHONPATH=$MUSE_ROOT python $REPO/step2/profile_musetalk_realtime.py \
+  PYTHONPATH=$MUSE_ROOT python ../step2/profile_musetalk_realtime.py \
       --avatar_id avator_1 \
       --audio data/audio/avator_1.wav \
       --num_frames 100
