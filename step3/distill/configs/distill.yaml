@@ -3,7 +3,7 @@
 # Student: student_musetalk.json (~136MB FP32, [128,256,512,512])
 # 数据: 直接复用 realtime_inference.py 预处理产出（无需 mmpose/decord）
 
-exp_name: 'distill_v1'
+exp_name: 'distill_lipsync'   # 嘴型优先，与 distill_v1 区分
 output_dir: './exp_out/distill/'
 
 # ========== 模型路径 ==========
@@ -20,11 +20,11 @@ data:
   train_bs:   16
   num_workers: 4
 
-# ========== 蒸馏损失权重 ==========
+# ========== 蒸馏损失权重（嘴型同步优先）==========
 loss_params:
-  output_distill: 1.0   # MSE(student_out, teacher_out)
-  feat_distill:   0.1   # cosine_sim 中间特征对齐
-  lip_distill:    0.1   # 嘴部区域 MSE（解码后取下半脸），显式约束唇形
+  output_distill: 0.5   # MSE(student_out, teacher_out)，保持 latent 结构
+  feat_distill:   0.05  # cosine_sim 中间特征对齐
+  lip_distill:    2.0   # 嘴部区域 MSE（主损失），显式约束唇形
 
 # ========== 特征蒸馏层 ==========
 feat_distill_layers:

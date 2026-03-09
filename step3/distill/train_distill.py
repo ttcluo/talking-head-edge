@@ -280,9 +280,9 @@ def main(args):
                     student_face = vae.vae.decode(
                         (student_out / sf).to(vae.vae.dtype)
                     ).sample
-                    # 下半脸 [B,3,128,256]，覆盖嘴部
-                    mouth_s = student_face[:, :, 128:, :].float()
-                    mouth_t = teacher_face[:, :, 128:, :].float().detach()
+                    # 嘴部区域 [B,3,96:224,256]，聚焦唇部减少下巴干扰
+                    mouth_s = student_face[:, :, 96:224, :].float()
+                    mouth_t = teacher_face[:, :, 96:224, :].float().detach()
                     L_lip = F.mse_loss(mouth_s, mouth_t)
                     loss = loss + lip_w * L_lip
                 else:
