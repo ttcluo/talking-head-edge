@@ -87,26 +87,19 @@ class Avatar:
     def init(self):
         if self.preparation:
             if os.path.exists(self.avatar_path):
-                response = input(f"{self.avatar_id} exists, Do you want to re-create it ? (y/n)")
-                if response.lower() == "y":
-                    shutil.rmtree(self.avatar_path)
-                    print("*********************************")
-                    print(f"  creating avator: {self.avatar_id}")
-                    print("*********************************")
-                    osmakedirs([self.avatar_path, self.full_imgs_path, self.video_out_path, self.mask_out_path])
-                    self.prepare_material()
-                else:
-                    self.input_latent_list_cycle = torch.load(self.latents_out_path)
-                    with open(self.coords_path, 'rb') as f:
-                        self.coord_list_cycle = pickle.load(f)
-                    input_img_list = glob.glob(os.path.join(self.full_imgs_path, '*.[jpJP][pnPN]*[gG]'))
-                    input_img_list = sorted(input_img_list, key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
-                    self.frame_list_cycle = read_imgs(input_img_list)
-                    with open(self.mask_coords_path, 'rb') as f:
-                        self.mask_coords_list_cycle = pickle.load(f)
-                    input_mask_list = glob.glob(os.path.join(self.mask_out_path, '*.[jpJP][pnPN]*[gG]'))
-                    input_mask_list = sorted(input_mask_list, key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
-                    self.mask_list_cycle = read_imgs(input_mask_list)
+                # 已创建好的直接跳过，加载已有数据（不交互询问）
+                print(f"  {self.avatar_id} 已存在，跳过预处理，加载已有数据")
+                self.input_latent_list_cycle = torch.load(self.latents_out_path)
+                with open(self.coords_path, 'rb') as f:
+                    self.coord_list_cycle = pickle.load(f)
+                input_img_list = glob.glob(os.path.join(self.full_imgs_path, '*.[jpJP][pnPN]*[gG]'))
+                input_img_list = sorted(input_img_list, key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
+                self.frame_list_cycle = read_imgs(input_img_list)
+                with open(self.mask_coords_path, 'rb') as f:
+                    self.mask_coords_list_cycle = pickle.load(f)
+                input_mask_list = glob.glob(os.path.join(self.mask_out_path, '*.[jpJP][pnPN]*[gG]'))
+                input_mask_list = sorted(input_mask_list, key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
+                self.mask_list_cycle = read_imgs(input_mask_list)
             else:
                 print("*********************************")
                 print(f"  creating avator: {self.avatar_id}")
