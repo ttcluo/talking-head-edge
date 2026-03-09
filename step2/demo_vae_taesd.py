@@ -7,11 +7,15 @@ VAE 替换效果对比 Demo：SD VAE vs TAESD
 用法（在 MuseTalk 目录下执行）：
   cd $MUSE_ROOT
   PYTHONPATH=$PWD python ../step2/demo_vae_taesd.py \
-      --avatar_id avator_1 \
-      --audio data/audio/avator_1.wav \
+      --avatar_id yongen \
+      --audio data/audio/2.wav \
+      --use_audio \
       --num_frames 200 \
       --taesd_dir models/taesd_cache \
       --out profile_results/vae_taesd_demo.mp4
+
+  注意：默认用预计算 dataset/distill/audio_feats/{avatar_id}.pt 驱动嘴型；
+  若要用 --audio 指定音频驱动嘴型，必须加 --use_audio。
 """
 
 import argparse
@@ -33,8 +37,11 @@ if MUSE_ROOT not in sys.path:
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--avatar_id", type=str, default="avator_1")
-parser.add_argument("--audio", type=str, default="data/audio/avator_1.wav")
+parser.add_argument("--audio", type=str, default="data/audio/avator_1.wav",
+                    help="音频文件：用于嘴型驱动（若 --use_audio）及输出视频音轨")
 parser.add_argument("--audio_feat", type=str, default="")
+parser.add_argument("--use_audio", action="store_true",
+                    help="强制用 --audio 驱动嘴型，忽略预计算 audio_feat（否则用 dataset/distill/audio_feats/{avatar_id}.pt）")
 parser.add_argument("--num_frames", type=int, default=200)
 parser.add_argument("--fps", type=int, default=25)
 parser.add_argument("--batch_size", type=int, default=4)
@@ -113,13 +120,18 @@ except Exception as e:
     print(f"  ✗ TAESD 加载失败: {e}")
     sys.exit(1)
 
-# ==================== 音频特征 ====================
+# ==================== 音频特征（嘴型驱动）====================
+# --use_audio：强制从 --audio 提取，否则优先用预计算
 audio_feat_path = args.audio_feat or os.path.join("dataset/distill/audio_feats", f"{args.avatar_id}.pt")
-if os.path.exists(audio_feat_path):
+if not args.use_audio and os.path.exists(audio_feat_path):
     whisper_chunks = torch.load(audio_feat_path, map_location=device)
-    print(f"\n[音频特征] 预计算 {audio_feat_path}")
+    print(f"\n[音频特征] 预计算 {audio_feat_path}（嘴型驱动）")
+    print(f"  若需用 --audio 驱动嘴型，请加 --use_audio")
 else:
-    print(f"\n[提取音频特征] {args.audio}")
+    if not os.path.exists(args.audio):
+        print(f"\n  ✗ 音频文件不存在: {args.audio}")
+        sys.exit(1)
+    print(f"\n[提取音频特征] {args.audio}（嘴型驱动）")
     from musetalk.utils.audio_processor import AudioProcessor
     from transformers import WhisperModel
     audio_processor = AudioProcessor(feature_extractor_path="models/whisper")
