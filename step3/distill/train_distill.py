@@ -10,6 +10,7 @@ Student: student_musetalk.json (~136MB FP32, [128,256,512,512])
 蒸馏损失：
   L_total = λ1 * L_output  (MSE student_out vs teacher_out)
           + λ2 * L_feat    (cosine_sim 中间特征对齐)
+          + λ3 * L_lip     (嘴部区域 MSE，解码后取下半脸)
 
 运行方式（在 $MUSE_ROOT 目录下）：
   cd $MUSE_ROOT && git pull origin main
@@ -268,6 +269,25 @@ def main(args):
 
                 loss = lp.output_distill * L_out + lp.feat_distill * L_feat
 
+                # L_lip: 嘴部区域 MSE，解码后取下半脸显式约束唇形
+                lip_w = lp.get("lip_distill", 0.0)
+                if lip_w > 0:
+                    sf = vae.vae.config.scaling_factor
+                    with torch.no_grad():
+                        teacher_face = vae.vae.decode(
+                            (teacher_out / sf).to(vae.vae.dtype)
+                        ).sample
+                    student_face = vae.vae.decode(
+                        (student_out / sf).to(vae.vae.dtype)
+                    ).sample
+                    # 下半脸 [B,3,128,256]，覆盖嘴部
+                    mouth_s = student_face[:, :, 128:, :].float()
+                    mouth_t = teacher_face[:, :, 128:, :].float().detach()
+                    L_lip = F.mse_loss(mouth_s, mouth_t)
+                    loss = loss + lip_w * L_lip
+                else:
+                    L_lip = torch.tensor(0.0, device=latent.device)
+
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(trainable, cfg.solver.max_grad_norm)
@@ -277,20 +297,22 @@ def main(args):
 
             if accelerator.sync_gradients:
                 global_step += 1
+                postfix = {"loss": f"{loss.item():.4f}", "L_out": f"{L_out.item():.4f}", "L_feat": f"{L_feat.item():.4f}"}
+                if lip_w > 0:
+                    postfix["L_lip"] = f"{L_lip.item():.4f}"
+                progress_bar.set_postfix(postfix)
                 progress_bar.update(1)
-                progress_bar.set_postfix({
-                    "loss":   f"{loss.item():.4f}",
-                    "L_out":  f"{L_out.item():.4f}",
-                    "L_feat": f"{L_feat.item():.4f}",
-                })
 
+                log_dict = {
+                    "loss": loss.item(),
+                    "L_out": L_out.item(),
+                    "L_feat": L_feat.item(),
+                    "lr": lr_scheduler.get_last_lr()[0],
+                }
+                if lip_w > 0:
+                    log_dict["L_lip"] = L_lip.item()
                 if accelerator.is_main_process:
-                    accelerator.log({
-                        "loss":   loss.item(),
-                        "L_out":  L_out.item(),
-                        "L_feat": L_feat.item(),
-                        "lr":     lr_scheduler.get_last_lr()[0],
-                    }, step=global_step)
+                    accelerator.log(log_dict, step=global_step)
 
                 if global_step % cfg.checkpointing_steps == 0 and accelerator.is_main_process:
                     raw = accelerator.unwrap_model(student_unet)

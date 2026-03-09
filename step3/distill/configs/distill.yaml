@@ -24,6 +24,7 @@ data:
 loss_params:
   output_distill: 1.0   # MSE(student_out, teacher_out)
   feat_distill:   0.1   # cosine_sim 中间特征对齐
+  lip_distill:    0.1   # 嘴部区域 MSE（解码后取下半脸），显式约束唇形
 
 # ========== 特征蒸馏层 ==========
 feat_distill_layers:
