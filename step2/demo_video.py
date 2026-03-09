@@ -6,7 +6,8 @@ MATS 视频对比 Demo（基于 MuseTalk 真实推理流程）
   2. 提取 Whisper 音频特征
   3. 基线推理（全量 UNet，每帧计算）
   4. MATS 推理（像素帧缓存，跳帧复用）
-  5. 生成左右对比视频
+  5. MATS+TAESD 推理（MATS + 轻量 VAE 解码）
+  6. 生成 3 路对比视频（Baseline | MATS | MATS+TAESD）
 
 使用方法：
     conda activate musetalk && cd $MUSE_ROOT
@@ -21,6 +22,7 @@ MATS 视频对比 Demo（基于 MuseTalk 真实推理流程）
         --audio data/audio/yongen.wav \
         --threshold 0.15 \
         --num_frames 200 \
+        --taesd_dir models/taesd_cache \
         --out profile_results/mats_demo.mp4
 """
 
@@ -56,13 +58,15 @@ parser.add_argument("--fps",        type=int,   default=25)
 parser.add_argument("--batch_size", type=int,   default=4)
 parser.add_argument("--out",        type=str,   default="profile_results/mats_demo.mp4")
 parser.add_argument("--version",    type=str,   default="v15")
+parser.add_argument("--taesd_dir",  type=str,   default="",
+                    help="TAESD 本地目录，空则尝试从 HuggingFace 加载")
 args = parser.parse_args()
 
 os.makedirs(os.path.dirname(args.out), exist_ok=True)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 print("=" * 65)
-print("  MATS 视频对比 Demo（真实 MuseTalk 推理）")
+print("  MATS 视频对比 Demo（3 路：Baseline | MATS | MATS+TAESD）")
 print("=" * 65)
 
 # ==================== 加载预处理数据 ====================
@@ -105,6 +109,20 @@ vae, unet, pe = load_all_model(
 weight_dtype = unet.model.dtype
 timesteps = torch.tensor([0], device=device)
 
+try:
+    from diffusers import AutoencoderTiny
+    if args.taesd_dir and os.path.isdir(args.taesd_dir):
+        taesd = AutoencoderTiny.from_pretrained(args.taesd_dir, local_files_only=True).to(device, dtype=weight_dtype)
+    else:
+        taesd = AutoencoderTiny.from_pretrained("madebyollin/taesd").to(device, dtype=weight_dtype)
+    taesd.eval()
+    TAESD_OK = True
+    print("  ✓ TAESD 加载成功")
+except Exception as e:
+    TAESD_OK = False
+    taesd = None
+    print(f"  ✗ TAESD 加载失败: {e}（将跳过 MATS+TAESD 路径）")
+
 audio_processor = AudioProcessor(feature_extractor_path="models/whisper")
 whisper = WhisperModel.from_pretrained("models/whisper")
 whisper = whisper.to(device=device, dtype=weight_dtype).eval()
@@ -132,13 +150,22 @@ def sync():
     if torch.cuda.is_available():
         torch.cuda.synchronize()
 
+def face_to_bgr(face):
+    """统一转为 (H,W,3) BGR uint8（兼容 tensor / numpy）"""
+    if hasattr(face, "permute"):
+        arr = (face.permute(1, 2, 0).float().cpu().numpy().clip(-1, 1) + 1) * 127.5
+        arr = arr.clip(0, 255).astype(np.uint8)
+        return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+    return np.asarray(face, dtype=np.uint8)
+
 def compose_frame(idx, res_face):
     """将生成人脸 blend 回原帧"""
+    res_face = face_to_bgr(res_face)
     bbox = coord_list_cycle[idx % cycle_len]
     ori  = copy.deepcopy(frame_list_cycle[idx % cycle_len])
     x1, y1, x2, y2 = bbox
     try:
-        res = cv2.resize(res_face.astype(np.uint8), (x2 - x1, y2 - y1))
+        res = cv2.resize(res_face, (x2 - x1, y2 - y1))
     except Exception:
         return ori
     mask  = mask_list_cycle[idx % cycle_len]
@@ -270,6 +297,70 @@ fps_mats = total_frames / sum(mats_t)
 skip_rate = skip_count / total_frames
 print(f"  MATS 完成：{fps_mats:.1f} FPS  跳过率={skip_rate:.1%}")
 
+# ==================== MATS + TAESD 推理 ====================
+mats_taesd_out = []
+mats_taesd_t = []
+skip_flags_taesd = []
+fps_mats_taesd = 0.0
+skip_rate_taesd = 0.0
+
+if TAESD_OK:
+    print(f"\n[MATS+TAESD 推理：像素帧缓存 + TAESD 解码，阈值={args.threshold}，max_skip={args.max_skip}]")
+    prev_lat = None
+    cached_pixel = None
+    skip_count_taesd = 0
+    consec_skip = 0
+
+    with torch.no_grad():
+        for i in range(total_frames):
+            lat = input_latent_list_cycle[i % cycle_len].to(device=device, dtype=weight_dtype)
+
+            if prev_lat is not None:
+                motion = float((lat.float() - prev_lat.float()).norm() /
+                               (prev_lat.float().norm() + 1e-6))
+            else:
+                motion = 999.0
+
+            max_skip_hit = (args.max_skip > 0 and consec_skip >= args.max_skip)
+            need_compute = (motion >= args.threshold or cached_pixel is None or max_skip_hit)
+
+            sync(); t0 = time.time()
+
+            if need_compute:
+                wc = whisper_chunks[i]
+                w = wc.cpu().unsqueeze(0).to(device) if isinstance(wc, torch.Tensor) \
+                    else torch.from_numpy(np.array([wc])).to(device)
+                audio_feat = pe(w)
+                pred = unet.model(lat.unsqueeze(0) if lat.dim() == 3 else lat, timesteps,
+                                  encoder_hidden_states=audio_feat).sample
+                pred = pred.to(dtype=weight_dtype)
+                out_taesd = taesd.decode(pred).sample
+                face = out_taesd[0]
+                cached_pixel = face_to_bgr(face).copy()
+                skipped = False
+                consec_skip = 0
+            else:
+                face = cached_pixel
+                skipped = True
+                skip_count_taesd += 1
+                consec_skip += 1
+
+            sync(); elapsed = time.time() - t0
+
+            composed = compose_frame(i, face)
+            mats_taesd_out.append(composed)
+            mats_taesd_t.append(elapsed)
+            skip_flags_taesd.append(skipped)
+            prev_lat = lat.clone()
+
+            if (i + 1) % 50 == 0 or (i + 1) == total_frames:
+                print(f"  [{i+1}/{total_frames}] {1/np.mean(mats_taesd_t[-20:]):.1f} FPS  "
+                      f"跳过率={skip_count_taesd/(i+1):.1%}")
+
+    fps_mats_taesd = total_frames / sum(mats_taesd_t)
+    skip_rate_taesd = skip_count_taesd / total_frames
+    print(f"  MATS+TAESD 完成：{fps_mats_taesd:.1f} FPS  跳过率={skip_rate_taesd:.1%}")
+
 # ==================== SSIM / PSNR ====================
 def _ssim_psnr(img1, img2, win_size=11, sigma=1.5):
     """标准 Gaussian 窗口 SSIM + PSNR（与 skimage 实现一致）"""
@@ -298,11 +389,24 @@ for b_f, m_f in zip(baseline_out, mats_out):
     psnr_vals.append(p)
 mean_ssim = float(np.mean(ssim_vals))
 mean_psnr = float(np.mean(psnr_vals))
-print(f"  SSIM={mean_ssim:.4f}  PSNR={mean_psnr:.2f} dB")
+print(f"  MATS vs 基线: SSIM={mean_ssim:.4f}  PSNR={mean_psnr:.2f} dB")
+
+mean_ssim_taesd = mean_ssim
+mean_psnr_taesd = mean_psnr
+if TAESD_OK:
+    ssim_taesd, psnr_taesd = [], []
+    for b_f, mt_f in zip(baseline_out, mats_taesd_out):
+        s, p = _ssim_psnr(b_f, mt_f)
+        ssim_taesd.append(s)
+        psnr_taesd.append(p)
+    mean_ssim_taesd = float(np.mean(ssim_taesd))
+    mean_psnr_taesd = float(np.mean(psnr_taesd))
+    print(f"  MATS+TAESD vs 基线: SSIM={mean_ssim_taesd:.4f}  PSNR={mean_psnr_taesd:.2f} dB")
 
 # ==================== 合成对比视频 ====================
 print(f"\n[合成对比视频]")
 speedup = fps_mats / fps_base
+speedup_taesd = fps_mats_taesd / fps_base if TAESD_OK else 0.0
 
 target_h = min(baseline_out[0].shape[0], 540)
 
@@ -322,16 +426,30 @@ for i in range(total_frames):
     m = add_overlay(m, [f"MATS (thr={args.threshold:.2f})",
                         f"Skip: {skip_flags[i]}"],
                     m_fps, skip_flags[i], (200, 255, 200))
-    div  = np.zeros((target_h, 4, 3), dtype=np.uint8)
+    div = np.zeros((target_h, 4, 3), dtype=np.uint8)
     div[:] = (80, 80, 80)
-    row  = np.concatenate([b, div, m], axis=1)
-    bw   = row.shape[1]
+    if TAESD_OK:
+        mt = resize_h(mats_taesd_out[i], target_h)
+        mt_fps = rolling_fps(mats_taesd_t, i)
+        mt = add_overlay(mt, [f"MATS+TAESD (thr={args.threshold:.2f})",
+                              f"Skip: {skip_flags_taesd[i]}"],
+                         mt_fps, skip_flags_taesd[i], (255, 255, 200))
+        w_target = b.shape[1]
+        m = cv2.resize(m, (w_target, target_h))
+        mt = cv2.resize(mt, (w_target, target_h))
+        row = np.concatenate([b, div, m, div, mt], axis=1)
+    else:
+        row = np.concatenate([b, div, m], axis=1)
+    bw = row.shape[1]
     stat = np.zeros((30, bw, 3), dtype=np.uint8)
-    info = (f"Frame {i+1}/{total_frames}   "
-            f"Baseline {fps_base:.1f} FPS   "
-            f"MATS {fps_mats:.1f} FPS   "
-            f"Speedup {speedup:.2f}x   "
-            f"Skip {skip_rate:.1%}")
+    if TAESD_OK:
+        info = (f"Frame {i+1}/{total_frames}   "
+                f"Baseline {fps_base:.1f}  MATS {fps_mats:.1f}  MATS+TAESD {fps_mats_taesd:.1f} FPS   "
+                f"Skip {skip_rate:.1%} / {skip_rate_taesd:.1%}")
+    else:
+        info = (f"Frame {i+1}/{total_frames}   "
+                f"Baseline {fps_base:.1f} FPS   MATS {fps_mats:.1f} FPS   "
+                f"Speedup {speedup:.2f}x   Skip {skip_rate:.1%}")
     cv2.putText(stat, info, (8, 20), cv2.FONT_HERSHEY_SIMPLEX,
                 0.45, (180, 220, 180), 1, cv2.LINE_AA)
     row = np.concatenate([row, stat], axis=0)
@@ -359,19 +477,31 @@ print(f"\n  ✓ 对比视频: {args.out}")
 
 base_dir = os.path.dirname(args.out)
 baseline_path = os.path.join(base_dir, "baseline.mp4")
-mats_path     = os.path.join(base_dir, "mats.mp4")
-h1, w1 = baseline_out[0].shape[:2]
+mats_path = os.path.join(base_dir, "mats.mp4")
 write_video_with_audio(baseline_out, args.audio, baseline_path, args.fps)
 print(f"  ✓ 单独基线: {baseline_path}")
 write_video_with_audio(mats_out, args.audio, mats_path, args.fps)
-print(f"  ✓ 单独MATS: {mats_path}")
-print(f"""
-======================================================================
-  Demo 汇总
-======================================================================
-  基线：{fps_base:.1f} FPS
-  MATS：{fps_mats:.1f} FPS  (加速 {speedup:.2f}×)
-  跳过率：{skip_rate:.1%}  (UNet 实际调用 {unet_count}/{total_frames} 帧)
-  SSIM：{mean_ssim:.4f}  PSNR：{mean_psnr:.2f} dB  (真实音频，baseline vs MATS)
-  输出：{args.out}
-""")
+print(f"  ✓ 单独 MATS: {mats_path}")
+if TAESD_OK:
+    mats_taesd_path = os.path.join(base_dir, "mats_taesd.mp4")
+    write_video_with_audio(mats_taesd_out, args.audio, mats_taesd_path, args.fps)
+    print(f"  ✓ 单独 MATS+TAESD: {mats_taesd_path}")
+
+summary_lines = [
+    "",
+    "======================================================================",
+    "  Demo 汇总",
+    "======================================================================",
+    f"  基线：{fps_base:.1f} FPS",
+    f"  MATS：{fps_mats:.1f} FPS  (加速 {speedup:.2f}×)",
+    f"  跳过率：{skip_rate:.1%}  (UNet 实际调用 {unet_count}/{total_frames} 帧)",
+    f"  SSIM：{mean_ssim:.4f}  PSNR：{mean_psnr:.2f} dB  (baseline vs MATS)",
+]
+if TAESD_OK:
+    summary_lines.extend([
+        f"  MATS+TAESD：{fps_mats_taesd:.1f} FPS  (加速 {speedup_taesd:.2f}×)",
+        f"  跳过率：{skip_rate_taesd:.1%}",
+        f"  SSIM：{mean_ssim_taesd:.4f}  PSNR：{mean_psnr_taesd:.2f} dB  (baseline vs MATS+TAESD)",
+    ])
+summary_lines.extend([f"  输出：{args.out}", ""])
+print("\n".join(summary_lines))
