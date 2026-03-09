@@ -15,9 +15,9 @@ MATS 视频对比 Demo（4 路对比）
 
 使用方法：
     cd $MUSE_ROOT
-    PYTHONPATH=$MUSE_ROOT python $PROJECT_ROOT/step2/demo_video_student.py \
+    PYTHONPATH=$MUSE_ROOT python $REPO/step2/demo_video_student.py \
         --student_ckpt exp_out/distill/distill_v1/student_unet_final.pth \
-        --student_config $PROJECT_ROOT/step3/distill/configs/student_musetalk.json \
+        --student_config $REPO/step3/distill/configs/student_musetalk.json \
         --avatar_id yongen \
         --audio data/audio/yongen.wav \
         --threshold 0.15 \
