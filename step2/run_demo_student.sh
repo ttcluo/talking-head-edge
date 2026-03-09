@@ -8,7 +8,8 @@
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO="${REPO:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+# 始终从脚本位置推导 REPO，避免环境变量 REPO 指向错误路径（如含 tad）
+REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 MUSE_ROOT="${MUSE_ROOT:-$REPO/MuseTalk}"
 
 STUDENT_CKPT="${STUDENT_CKPT:-exp_out/distill/distill_lipsync/student_unet-2000.pth}"

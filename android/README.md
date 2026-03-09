@@ -38,7 +38,7 @@ android/TalkingHeadDemo/
 # 进入 MuseTalk 项目根目录
 cd /path/to/musetalk   # 替换为你的 MuseTalk 实际路径
 export MUSE_ROOT=$(pwd)
-# 可选：export REPO=/path/to/tad  若不设则从脚本位置推导
+# 可选：export REPO=/path/to/项目根  若不设则从脚本位置推导（勿用 tad，服务器上为 talking-head-edge）
 bash $REPO/step3/android/build_android_assets.sh
 ```
 需已训练好 `student_unet_final.pth` 及 avatar/audio 数据。

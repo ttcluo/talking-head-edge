@@ -13,11 +13,12 @@ MATS 视频对比 Demo（4 路对比）
   6. MATS+Student：Student + 像素帧缓存
   7. 生成 2×2 对比视频
 
-使用方法（REPO 从脚本位置推导，兼容本地与服务器）：
-    从项目根：bash step2/run_demo_student.sh
-    或手动：
-    cd $MUSE_ROOT
-    PYTHONPATH=$MUSE_ROOT python $REPO/step2/demo_video_student.py \
+使用方法：
+    推荐（REPO 自动推导，避免路径错误）：
+        cd 项目根 && bash step2/run_demo_student.sh
+    或手动（需 REPO=项目根，服务器上勿用 tad）：
+        cd $MUSE_ROOT
+        PYTHONPATH=$MUSE_ROOT python $REPO/step2/demo_video_student.py \
         --student_ckpt exp_out/distill/distill_lipsync/student_unet-2000.pth \
         --student_config $REPO/step3/distill/configs/student_musetalk.json \
         --avatar_id yongen \
