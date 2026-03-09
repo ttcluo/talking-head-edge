@@ -23,11 +23,13 @@ def face_seg(image, mode="raw", fp=None):
     Returns:
         PIL.Image: 面部区域的掩码图像。
     """
+    w, h = image.size
+    if w <= 0 or h <= 0:
+        return Image.new("L", (max(1, w), max(1, h)), 0)
     seg_image = fp(image, mode=mode)  # 使用 FaceParsing 模型解析面部
     if seg_image is None:
         print("error, no person_segment")  # 如果没有检测到面部，返回错误
         return None
-
     seg_image = seg_image.resize(image.size)  # 将掩码图像调整为输入图像的大小
     return seg_image
 
@@ -111,14 +113,25 @@ def get_image_blending(image, face, face_box, mask_array, crop_box):
 
 def get_image_prepare_material(image, face_box, upper_boundary_ratio=0.5, expand=1.5, fp=None, mode="raw"):
     body = Image.fromarray(image[:,:,::-1])
+    img_w, img_h = body.size
 
     x, y, x1, y1 = face_box
-    #print(x1-x,y1-y)
+    if x1 <= x or y1 <= y:
+        mask_array = np.zeros((max(1, img_h), max(1, img_w)), dtype=np.uint8)
+        return mask_array, [0, 0, max(1, img_w), max(1, img_h)]
     crop_box, s = get_crop_box(face_box, expand)
     x_s, y_s, x_e, y_e = crop_box
+    x_s = max(0, min(x_s, img_w - 1))
+    y_s = max(0, min(y_s, img_h - 1))
+    x_e = max(x_s + 1, min(x_e, img_w))
+    y_e = max(y_s + 1, min(y_e, img_h))
+    crop_box = [x_s, y_s, x_e, y_e]
 
     face_large = body.crop(crop_box)
     ori_shape = face_large.size
+    if ori_shape[0] <= 0 or ori_shape[1] <= 0:
+        mask_array = np.zeros((max(1, img_h), max(1, img_w)), dtype=np.uint8)
+        return mask_array, crop_box
 
     mask_image = face_seg(face_large, mode=mode, fp=fp)
     mask_small = mask_image.crop((x-x_s, y-y_s, x1-x_s, y1-y_s))

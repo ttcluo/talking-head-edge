@@ -186,16 +186,36 @@ class Avatar:
         self.input_latent_list_cycle = input_latent_list + input_latent_list[::-1]
         self.mask_coords_list_cycle = []
         self.mask_list_cycle = []
+        last_mask, last_crop_box = None, None
 
         for i, frame in enumerate(tqdm(self.frame_list_cycle)):
             cv2.imwrite(f"{self.full_imgs_path}/{str(i).zfill(8)}.png", frame)
 
             x1, y1, x2, y2 = self.coord_list_cycle[i]
-            if args.version == "v15":
-                mode = args.parsing_mode
+            # 无效 bbox（占位或宽高非正）会导致 get_image_prepare_material 中裁剪出零尺寸，face_seg 报错
+            if (x2 <= x1 or y2 <= y1 or
+                (x1 == 0 and y1 == 0 and x2 == 0 and y2 == 0)):
+                if last_mask is not None and last_crop_box is not None:
+                    mask, crop_box = last_mask, last_crop_box
+                else:
+                    h, w = frame.shape[:2]
+                    mask = np.zeros((h, w), dtype=np.uint8)
+                    crop_box = [0, 0, max(w, 1), max(h, 1)]
             else:
-                mode = "raw"
-            mask, crop_box = get_image_prepare_material(frame, [x1, y1, x2, y2], fp=fp, mode=mode)
+                if args.version == "v15":
+                    mode = args.parsing_mode
+                else:
+                    mode = "raw"
+                try:
+                    mask, crop_box = get_image_prepare_material(frame, [x1, y1, x2, y2], fp=fp, mode=mode)
+                except (ValueError, OSError) as e:
+                    if last_mask is not None and last_crop_box is not None:
+                        mask, crop_box = last_mask, last_crop_box
+                    else:
+                        h, w = frame.shape[:2]
+                        mask = np.zeros((h, w), dtype=np.uint8)
+                        crop_box = [0, 0, max(w, 1), max(h, 1)]
+                last_mask, last_crop_box = mask, crop_box
 
             cv2.imwrite(f"{self.mask_out_path}/{str(i).zfill(8)}.png", mask)
             self.mask_coords_list_cycle += [crop_box]
