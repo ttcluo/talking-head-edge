@@ -95,15 +95,13 @@ unet = unet_wrapper.model.to(device)
 vae.vae = vae.vae.to(device)
 pe = pe_module.to(device)
 
-# 使用 FP16 与 demo 一致
-weight_dtype = torch.float16
-unet = unet.to(weight_dtype)
-vae.vae = vae.vae.to(weight_dtype)
+# 使用模型原生 dtype（与 demo_video 一致，避免预计算 audio_feat 与模型 dtype 不匹配）
+weight_dtype = unet.dtype
 unet.eval()
 vae.vae.eval()
 
 timesteps = torch.tensor([0], device=device, dtype=torch.long)
-print("  模型加载完成 (FP16)")
+print(f"  模型加载完成 ({weight_dtype})")
 
 # ==================== 预热 ====================
 print("\n[预热 5 帧]")
@@ -114,9 +112,9 @@ with torch.no_grad():
             lat = lat.unsqueeze(0)
         af = audio_chunks[i]
         if isinstance(af, torch.Tensor):
-            af = af.unsqueeze(0).to(device)
+            af = af.unsqueeze(0).to(device=device, dtype=weight_dtype)
         else:
-            af = torch.from_numpy(af).unsqueeze(0).to(device)
+            af = torch.from_numpy(af).unsqueeze(0).to(device=device, dtype=weight_dtype)
         af = pe(af)
         pred = unet(lat, timesteps, encoder_hidden_states=af, return_dict=False)[0]
         _ = vae.decode_latents(pred)
@@ -156,9 +154,9 @@ with torch.no_grad():
             lat = lat.unsqueeze(0)
         af = audio_chunks[i]
         if isinstance(af, torch.Tensor):
-            af = af.unsqueeze(0).to(device)
+            af = af.unsqueeze(0).to(device=device, dtype=weight_dtype)
         else:
-            af = torch.from_numpy(af).unsqueeze(0).to(device)
+            af = torch.from_numpy(af).unsqueeze(0).to(device=device, dtype=weight_dtype)
 
         sync()
         t0 = time.time()
