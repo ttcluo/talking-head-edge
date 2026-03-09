@@ -222,10 +222,10 @@ def add_overlay(frame, label, fps_val, color):
     return out
 
 
-# ==================== 推理：SD VAE + TAESD ====================
+# ==================== 推理：SD VAE + TAESD（测量端到端 FPS）====================
 print(f"\n[推理：SD VAE vs TAESD，{total_frames} 帧]")
 sd_out, taesd_out = [], []
-sd_t, taesd_t = [], []
+t_sd_path, t_taesd_path = [], []  # 端到端每帧耗时（pe+unet+vae+blend）
 
 with torch.no_grad():
     for i in range(0, total_frames, args.batch_size):
@@ -239,39 +239,54 @@ with torch.no_grad():
             [input_latent_list_cycle[j % cycle_len] for j in range(i, i+bs)], 0
         ).to(device=device, dtype=weight_dtype)
 
+        sync()
+        t0 = time.time()
         audio_feat = pe(w_batch)
         pred = unet(lat_batch, timesteps, encoder_hidden_states=audio_feat, return_dict=False)[0]
         pred = pred.to(dtype=weight_dtype)
-
-        # SD VAE decode
         sync()
-        t0 = time.time()
+        t_after_unet = time.time()
+
+        # SD VAE decode + compose
         pred_sd = pred.to(dtype=vae_sd.vae.dtype)
         z_sd = pred_sd / sd_scaling
         recon_sd = vae_sd.vae.decode(z_sd).sample
         sync()
-        sd_t.extend([(time.time() - t0) / bs] * bs)
-
-        # TAESD decode
+        t_after_sd_vae = time.time()
+        for k in range(bs):
+            sd_out.append(compose_frame(i + k, recon_sd[k]))
         sync()
-        t0 = time.time()
+        t_after_sd_compose = time.time()
+
+        # TAESD decode + compose
         recon_taesd = taesd.decode(pred).sample
         sync()
-        taesd_t.extend([(time.time() - t0) / bs] * bs)
-
+        t_after_taesd_vae = time.time()
         for k in range(bs):
-            idx = i + k
-            sd_out.append(compose_frame(idx, recon_sd[k]))
-            taesd_out.append(compose_frame(idx, recon_taesd[k]))
+            taesd_out.append(compose_frame(i + k, recon_taesd[k]))
+        sync()
+        t_after_taesd_compose = time.time()
+
+        shared = (t_after_unet - t0) / bs
+        sd_vae = (t_after_sd_vae - t_after_unet) / bs
+        sd_comp = (t_after_sd_compose - t_after_sd_vae) / bs
+        taesd_vae = (t_after_taesd_vae - t_after_sd_compose) / bs
+        taesd_comp = (t_after_taesd_compose - t_after_taesd_vae) / bs
+        t_sd_path.extend([shared + sd_vae + sd_comp] * bs)
+        t_taesd_path.extend([shared + taesd_vae + taesd_comp] * bs)
 
         if (i + bs) % 50 < args.batch_size or (i + bs) >= total_frames:
             print(f"  [{i+bs}/{total_frames}]")
 
-fps_sd = total_frames / sum(sd_t)
-fps_taesd = total_frames / sum(taesd_t)
+total_sd = sum(t_sd_path)
+total_taesd = sum(t_taesd_path)
+fps_sd = total_frames / total_sd
+fps_taesd = total_frames / total_taesd
 speedup = fps_taesd / fps_sd
-print(f"  SD VAE:   {fps_sd:.1f} FPS")
-print(f"  TAESD:   {fps_taesd:.1f} FPS  加速 {speedup:.2f}×")
+ms_sd = total_sd / total_frames * 1000
+ms_taesd = total_taesd / total_frames * 1000
+print(f"  SD VAE 端到端:   {ms_sd:.1f} ms/帧  {fps_sd:.1f} FPS")
+print(f"  TAESD 端到端:    {ms_taesd:.1f} ms/帧  {fps_taesd:.1f} FPS  加速 {speedup:.2f}×")
 
 # ==================== SSIM / PSNR ====================
 def _ssim_psnr(img1, img2):
@@ -311,7 +326,7 @@ for i in range(total_frames):
     s = resize_h(sd_out[i], target_h)
     t = resize_h(taesd_out[i], target_h)
     s = add_overlay(s, "SD VAE (original)", fps_sd, (200, 200, 255))
-    t = add_overlay(t, "TAESD (9× faster)", fps_taesd, (200, 255, 200))
+    t = add_overlay(t, f"TAESD ({speedup:.1f}×)", fps_taesd, (200, 255, 200))
     div = np.zeros((target_h, 4, 3), dtype=np.uint8)
     div[:] = (80, 80, 80)
     row = np.concatenate([s, div, t], axis=1)
@@ -359,10 +374,10 @@ print(f"  ✓ 单独 TAESD: {taesd_path}")
 
 print(f"""
 ======================================================================
-  VAE 替换 Demo 汇总
+  VAE 替换 Demo 汇总（端到端：pe+unet+vae+blend）
 ======================================================================
-  SD VAE:   {fps_sd:.1f} FPS
-  TAESD:    {fps_taesd:.1f} FPS  (加速 {speedup:.2f}×)
+  SD VAE:   {ms_sd:.1f} ms/帧  {fps_sd:.1f} FPS
+  TAESD:    {ms_taesd:.1f} ms/帧  {fps_taesd:.1f} FPS  (加速 {speedup:.2f}×)
   SSIM:     {mean_ssim:.4f}  PSNR: {mean_psnr:.2f} dB
   输出:     {args.out}
 """)
