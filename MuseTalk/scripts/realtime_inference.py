@@ -37,6 +37,7 @@ def fast_check_ffmpeg():
 def video2imgs(vid_path, save_path, ext='.png', cut_frame=10000000):
     cap = cv2.VideoCapture(vid_path)
     count = 0
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) if cap.get(cv2.CAP_PROP_FRAME_COUNT) > 0 else 0
     while True:
         if count > cut_frame:
             break
@@ -44,8 +45,12 @@ def video2imgs(vid_path, save_path, ext='.png', cut_frame=10000000):
         if ret:
             cv2.imwrite(f"{save_path}/{count:08d}.png", frame)
             count += 1
+            if total > 0 and count % 500 == 0:
+                print(f"  抽帧: {count}/{total}")
         else:
             break
+    cap.release()
+    print(f"  抽帧完成: {count} 帧")
 
 
 def osmakedirs(path_list):
@@ -141,6 +146,7 @@ class Avatar:
             json.dump(self.avatar_info, f)
 
         if os.path.isfile(self.video_path):
+            print("  从视频抽帧写入 full_imgs（无总帧数时仅每 500 帧打印）...")
             video2imgs(self.video_path, self.full_imgs_path, ext='png')
         else:
             print(f"copy files in {self.video_path}")
