@@ -32,14 +32,23 @@ for i in $(seq 1 10); do
         continue
     fi
 
-    if [ ! -f "$AUDIO" ]; then
+    # 有预计算 audio_feat 则无需音频；否则需任意 wav
+    AUDIO_FEAT="$MUSE_ROOT/dataset/distill/audio_feats/${AID}.pt"
+    AUDIO=""
+    if [ -f "$AUDIO_FEAT" ]; then
         AUDIO="$MUSE_ROOT/data/audio/avator_1.wav"
-        [ -f "$AUDIO" ] || AUDIO=""
     fi
+    [ -f "$AUDIO" ] || AUDIO="$MUSE_ROOT/data/audio/${AID}.wav"
+    [ -f "$AUDIO" ] || AUDIO="$MUSE_ROOT/data/audio/$i.wav"
+    [ -f "$AUDIO" ] || AUDIO=$(ls "$MUSE_ROOT/data/audio/"*.wav 2>/dev/null | head -1)
     if [ -z "$AUDIO" ] || [ ! -f "$AUDIO" ]; then
-        echo "[$AID] 跳过：无音频文件"
-        echo -e "$AID\t-\t-\t-\t-\t-\tno_audio" >> "$SUMMARY"
-        continue
+        if [ ! -f "$AUDIO_FEAT" ]; then
+            echo ""
+            echo "[$AID] 跳过：无 audio_feat 且无音频文件"
+            echo -e "$AID\t-\t-\t-\t-\t-\tno_audio" >> "$SUMMARY"
+            continue
+        fi
+        AUDIO="$MUSE_ROOT/data/audio/avator_1.wav"
     fi
 
     echo ""
